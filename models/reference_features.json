@@ -1,0 +1,12 @@
+{
+  "format_version": 1,
+  "count": 1,
+  "updated_at": "2026-10-16T10:43:56.271541+00:00",
+  "entries": [
+    {
+      "index": 0,
+      "image_path": "C:\\Users\\parat\\AppData\\Local\\Temp\\pytest-of-parat\\pytest-2\\test_pending_flow_does_not_aff0\\reference\\tiger_candidate\\img_001.jpg",
+      "tiger_name": "tiger_candidate"
+    }
+  ]
+}

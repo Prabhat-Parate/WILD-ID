@@ -25,9 +25,9 @@ Embedding Head: Linear(768->256) -> ReLU -> Linear(256->128) -> L2 Normalize
 |
 128-dim Embedding
 |
-Cosine Similarity vs Reference DB (threshold = 0.97)
+Cosine Similarity vs Reference DB (threshold in src/config.py, configurable heuristic, not validated)
 |
-Tiger Identity / Unknown
+Candidate Identity (unverified) / No candidate above threshold
 ```
 
 
@@ -42,7 +42,7 @@ Tiger Identity / Unknown
 | Epochs trained | 19 (early stopped, patience=10) |
 | Best triplet loss | 0.0054 (epoch 9) |
 | Embedding dimension | 128 |
-| Cosine threshold | 0.97 |
+| Cosine threshold | Configured in `src/config.py` (heuristic, not validated) |
 | Optimizer | Adam (lr=0.0001) |
 | LR Scheduler | CosineAnnealingLR |
 
@@ -59,7 +59,8 @@ minor/
 │   └── test/                    # Query images
 ├── models/
 │   ├── tiger_finetuned_vit.pth  # Download separately (see below)
-│   └── reference_features.pkl   # Pre-built reference embeddings
+│   ├── reference_features.npz   # Atomic reference embeddings matrix
+│   └── reference_features.json  # Reference metadata
 ├── src/
 │   ├── feature_extractor.py
 │   ├── matcher.py
