@@ -2,9 +2,11 @@ import os
 import re
 import json
 import time
+import math
 import uuid
 import shutil
 import warnings
+import concurrent.futures
 from pathlib import Path
 from datetime import datetime, timezone
 import numpy as np
@@ -21,8 +23,16 @@ from src.config import (
     LEGACY_PKL_PATH,
     NAME_REGEX,
     NAME_MIN_LENGTH,
-    NAME_MAX_LENGTH
+    NAME_MAX_LENGTH,
+    MAX_UPLOAD_SIZE_MB,
+    MAX_PIXEL_COUNT,
+    MAX_DISPLAY_PIXELS,
+    ALLOWED_IMAGE_EXTENSIONS,
+    REQUEST_TIMEOUT_SECONDS
 )
+
+# Protect against decompression bomb attacks at the Pillow level
+Image.MAX_IMAGE_PIXELS = MAX_PIXEL_COUNT
 
 # Reserved Windows file names
 WINDOWS_RESERVED_NAMES = {
@@ -72,19 +82,132 @@ def validate_identity_name(name: str, base_dir: str = REFERENCE_DIR) -> tuple[bo
     return True, sanitized
 
 
+def safe_process_image(
+    image_input,
+    max_size_mb: int = MAX_UPLOAD_SIZE_MB,
+    max_pixels: int = MAX_PIXEL_COUNT,
+    max_display_pixels: int = MAX_DISPLAY_PIXELS
+) -> tuple[Image.Image, dict]:
+    """
+    Validate upload bounds, protect against decompression bombs,
+    downscale oversized images, and convert safely to RGB.
+
+    Args:
+        image_input: File path (str/Path) or PIL.Image.Image.
+        max_size_mb: Maximum allowed file size in MB.
+        max_pixels: Maximum allowed pixel count (bomb protection).
+        max_display_pixels: Downscale images exceeding this pixel count.
+
+    Returns:
+        (sanitized_image: PIL.Image.Image, metadata: dict)
+
+    Raises:
+        ValueError: If size or pixel limit exceeded, or invalid format.
+    """
+    size_bytes = -1
+    filename = ""
+
+    if isinstance(image_input, (str, Path)):
+        path = Path(image_input)
+        if not path.exists():
+            raise FileNotFoundError(f"Image file does not exist: {image_input}")
+
+        filename = path.name
+        if path.suffix.lower() not in ALLOWED_IMAGE_EXTENSIONS:
+            raise ValueError(
+                f"Unsupported image file extension: '{path.suffix}'. "
+                f"Allowed extensions: {sorted(list(ALLOWED_IMAGE_EXTENSIONS))}"
+            )
+
+        size_bytes = path.stat().st_size
+        max_bytes = max_size_mb * 1024 * 1024
+        if size_bytes > max_bytes:
+            raise ValueError(
+                f"Image file size ({size_bytes / (1024*1024):.2f} MB) exceeds "
+                f"maximum upload limit of {max_size_mb} MB."
+            )
+
+        try:
+            with Image.open(path) as img:
+                total_pixels = img.width * img.height
+                if total_pixels > max_pixels:
+                    raise ValueError(
+                        f"Image pixel count ({total_pixels}) exceeds maximum safety limit "
+                        f"of {max_pixels} pixels (decompression bomb protection)."
+                    )
+                rgb_img = img.convert('RGB')
+        except Image.DecompressionBombError as e:
+            raise ValueError(f"Decompression bomb detected and rejected: {e}")
+        except Exception as e:
+            if isinstance(e, ValueError):
+                raise
+            raise ValueError(f"Failed to decode image file: {e}")
+
+    elif isinstance(image_input, Image.Image):
+        total_pixels = image_input.width * image_input.height
+        if total_pixels > max_pixels:
+            raise ValueError(
+                f"Image pixel count ({total_pixels}) exceeds maximum safety limit "
+                f"of {max_pixels} pixels (decompression bomb protection)."
+            )
+        try:
+            rgb_img = image_input.convert('RGB')
+        except Image.DecompressionBombError as e:
+            raise ValueError(f"Decompression bomb detected and rejected: {e}")
+        except Exception as e:
+            raise ValueError(f"Failed to process image: {e}")
+
+    else:
+        raise ValueError(f"Unsupported image input type: {type(image_input)}")
+
+    orig_w, orig_h = rgb_img.size
+    total_pixels = orig_w * orig_h
+    downscaled = False
+
+    if total_pixels > max_display_pixels:
+        scale = math.sqrt(max_display_pixels / total_pixels)
+        new_w = max(1, int(orig_w * scale))
+        new_h = max(1, int(orig_h * scale))
+        rgb_img = rgb_img.resize((new_w, new_h), Image.Resampling.BILINEAR)
+        downscaled = True
+
+    metadata = {
+        "filename": filename,
+        "orig_width": orig_w,
+        "orig_height": orig_h,
+        "width": rgb_img.width,
+        "height": rgb_img.height,
+        "mode": rgb_img.mode,
+        "total_pixels": rgb_img.width * rgb_img.height,
+        "downscaled": downscaled,
+        "size_bytes": size_bytes
+    }
+    return rgb_img, metadata
+
+
 def ensure_rgb_image(image_input) -> Image.Image:
     """
     Convert an image input (PIL Image or file path) to an RGB PIL Image in memory.
-    Handles RGBA, P (palette), L, and other modes safely without file errors.
+    Enforces upload caps, decompression bomb protection, and downscaling.
     """
-    if isinstance(image_input, Image.Image):
-        return image_input.convert('RGB')
+    img, _ = safe_process_image(image_input)
+    return img
 
-    if isinstance(image_input, (str, Path)):
-        with Image.open(image_input) as img:
-            return img.convert('RGB')
 
-    raise ValueError(f"Unsupported image input type: {type(image_input)}")
+def run_with_timeout(func, args=(), kwargs=None, timeout: float = REQUEST_TIMEOUT_SECONDS):
+    """
+    Execute a callable with a strict timeout to prevent hung worker threads.
+
+    Raises:
+        TimeoutError: If execution exceeds timeout seconds.
+    """
+    kwargs = kwargs or {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(func, *args, **kwargs)
+        try:
+            return future.result(timeout=timeout)
+        except concurrent.futures.TimeoutError:
+            raise TimeoutError(f"Request timed out after {timeout:.1f} seconds")
 
 
 def save_features_npz(features_dict: dict, npz_path: str = NPZ_PATH, json_path: str = METADATA_JSON_PATH):
@@ -314,8 +437,8 @@ def submit_to_pending(image_input, tiger_name: str, provenance: dict = None, pen
     return True, msg, meta
 
 
-def list_pending_submissions(pending_dir: str = PENDING_DIR) -> list[dict]:
-    """List all submissions currently in pending status."""
+def list_pending_submissions(pending_dir: str = PENDING_DIR, max_items: int = 50) -> list[dict]:
+    """List submissions currently in pending status, bounded to max_items."""
     pending_path = Path(pending_dir).resolve()
     if not pending_path.exists():
         return []
@@ -327,6 +450,8 @@ def list_pending_submissions(pending_dir: str = PENDING_DIR) -> list[dict]:
                 data = json.load(f)
                 if data.get("status") == "pending":
                     submissions.append(data)
+                    if len(submissions) >= max_items:
+                        break
         except Exception:
             continue
     return submissions
@@ -341,7 +466,9 @@ def review_pending_submission(
     reference_features: dict = None,
     pending_dir: str = PENDING_DIR,
     reference_dir: str = REFERENCE_DIR,
-    trash_dir: str = TRASH_DIR
+    trash_dir: str = TRASH_DIR,
+    npz_path: str = NPZ_PATH,
+    json_path: str = METADATA_JSON_PATH
 ) -> tuple[bool, str, dict]:
     """
     Review a pending submission. Action must be 'approve' or 'reject'.
@@ -394,7 +521,7 @@ def review_pending_submission(
             if features is not None:
                 matcher.add_reference(sanitized_name, features, str(final_dest))
                 reference_features[str(final_dest)] = features
-                save_features_npz(reference_features)
+                save_features_npz(reference_features, npz_path=npz_path, json_path=json_path)
 
         msg = f"Submission '{submission_id}' approved. Added to reference database as {sanitized_name} ({final_dest.name})."
         return True, msg, meta

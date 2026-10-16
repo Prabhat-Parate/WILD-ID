@@ -3,6 +3,7 @@ import os
 import sys
 import time
 import json
+import torch
 from pathlib import Path
 from PIL import Image
 
@@ -22,7 +23,16 @@ from src.config import (
     TEST_DIR,
     NPZ_PATH,
     METADATA_JSON_PATH,
-    LEGACY_PKL_PATH
+    LEGACY_PKL_PATH,
+    DEFAULT_HOST,
+    DEFAULT_PORT,
+    MAX_UPLOAD_SIZE_MB,
+    MAX_PIXEL_COUNT,
+    MAX_DISPLAY_PIXELS,
+    QUEUE_MAX_SIZE,
+    DEFAULT_CONCURRENCY_LIMIT,
+    TORCH_NUM_THREADS,
+    REQUEST_TIMEOUT_SECONDS
 )
 from src.feature_extractor import TigerFeatureExtractor
 from src.matcher import TigerMatcher
@@ -40,13 +50,16 @@ from src.utils import (
     validate_dataset,
     validate_identity_name,
     ensure_rgb_image,
+    safe_process_image,
+    run_with_timeout,
     move_to_trash,
     submit_to_pending,
     list_pending_submissions,
     review_pending_submission
 )
+from src.logger import logger, log_inference_event
 
-# Global runtime state
+# Global runtime state - single shared model instances
 extractor = None
 matcher = None
 detector = None
@@ -56,6 +69,8 @@ reference_features = {}
 
 def initialize_system():
     global extractor, matcher, detector, classifier
+    torch.set_num_threads(TORCH_NUM_THREADS)
+
     if extractor is None:
         extractor = TigerFeatureExtractor(device='cpu')
     if matcher is None:
@@ -64,6 +79,11 @@ def initialize_system():
         detector = AnimalDetector(device='cpu')
     if classifier is None:
         classifier = SpeciesClassifier(device='cpu')
+
+    logger.info(
+        f"System initialized: PyTorch threads={torch.get_num_threads()}, "
+        f"device=CPU, shared model instances loaded."
+    )
 
 
 # ── Database Management ───────────────────────────────────────────────────────
@@ -238,7 +258,7 @@ def delete_tiger(tiger_name, confirm_delete=False):
 def identify_tiger(image):
     """
     Run detection, privacy filtering, species verification,
-    and gated individual re-identification.
+    and gated individual re-identification with safety bounds and timeouts.
     """
     global extractor, matcher, detector, classifier
 
@@ -248,22 +268,34 @@ def identify_tiger(image):
     if image is None:
         return "Please upload an image to identify.", None, []
 
+    start_time = time.time()
     try:
+        # Safe image ingestion: enforces upload caps, rejects decompression bombs, downscales if oversized
+        rgb_image, img_meta = safe_process_image(image)
+
+        # Log request without image content
+        log_inference_event(
+            action="IDENTIFY_TIGER_START",
+            image_metadata=img_meta,
+            status="STARTED"
+        )
+
         if detector is None or classifier is None:
             initialize_system()
 
-        rgb_image = ensure_rgb_image(image)
+        # Execute frame pipeline under timeout
+        def _execute_pipeline():
+            return process_frame(
+                image=rgb_image,
+                detector=detector,
+                classifier=classifier,
+                reid_extractor=extractor,
+                reid_matcher=matcher,
+                score_threshold=0.25,
+                max_detections=10
+            )
 
-        # Execute frame pipeline
-        frame_res = process_frame(
-            image=rgb_image,
-            detector=detector,
-            classifier=classifier,
-            reid_extractor=extractor,
-            reid_matcher=matcher,
-            score_threshold=0.25,
-            max_detections=10
-        )
+        frame_res = run_with_timeout(_execute_pipeline, timeout=REQUEST_TIMEOUT_SECONDS)
 
         annotated_img = frame_res['annotated_image']
         detections = frame_res['detections']
@@ -271,17 +303,20 @@ def identify_tiger(image):
         tiger_crops = frame_res['tiger_crops']
 
         gallery_items = []
+        top_cand_name = None
+        top_cand_score = 0.0
 
         # If any verified tiger was found, run full top-5 candidate retrieval
         tiger_detections = [d for d in detections if d.get('is_tiger')]
         if tiger_detections and tiger_crops:
-            # Evaluate the primary tiger crop
             primary_crop = tiger_crops[0]
             features = extractor.extract_features(primary_crop)
 
             if features is not None:
                 best_match, best_score, all_scores = matcher.find_match(features, threshold=SIMILARITY_THRESHOLD)
                 top_candidates = matcher.get_top_candidates(features, top_k=TOP_K_CANDIDATES)
+                top_cand_name = best_match
+                top_cand_score = best_score
 
                 outcome_header = (
                     f"OUTCOME: {OUTCOME_ABOVE_THRESHOLD}"
@@ -315,9 +350,27 @@ def identify_tiger(image):
 
                 summary_text += "\n" + "\n".join(reid_lines)
 
+        elapsed_ms = (time.time() - start_time) * 1000
+        log_inference_event(
+            action="IDENTIFY_TIGER_COMPLETE",
+            image_metadata=img_meta,
+            status="SUCCESS",
+            duration_ms=elapsed_ms,
+            detail=f"detections={len(detections)}, top_cand={top_cand_name}, sim={top_cand_score:.4f}"
+        )
         return summary_text, annotated_img, gallery_items
 
+    except TimeoutError as te:
+        elapsed_ms = (time.time() - start_time) * 1000
+        logger.warning(f"Inference timed out after {elapsed_ms:.1f}ms: {te}")
+        return f"Request timed out: Inference exceeded {REQUEST_TIMEOUT_SECONDS}s limit.", None, []
+
+    except ValueError as ve:
+        logger.warning(f"Upload rejected by safety guard: {ve}")
+        return f"Upload rejected: {str(ve)}", None, []
+
     except Exception as e:
+        logger.error(f"Error during processing: {str(e)}")
         return f"Error during processing: {str(e)}", None, []
 
 
@@ -602,8 +655,8 @@ with gr.Blocks(title="Tiger Identification & Detection") as demo:
         gr.HTML('<hr class="divider">')
         setup_output = gr.Textbox(label="Status", lines=14)
 
-        load_btn.click(fn=load_existing_database, outputs=setup_output)
-        build_btn.click(fn=build_reference_database, outputs=setup_output)
+        load_btn.click(fn=load_existing_database, outputs=setup_output, concurrency_limit=1)
+        build_btn.click(fn=build_reference_database, outputs=setup_output, concurrency_limit=1)
 
         gr.HTML('<hr class="divider">')
         gr.HTML('<p class="threshold-note">Delete a tiger — moves folder to trash/ after explicit confirmation</p>')
@@ -624,7 +677,8 @@ with gr.Blocks(title="Tiger Identification & Detection") as demo:
         delete_btn.click(
             fn=delete_tiger,
             inputs=[delete_name_input, confirm_delete_box],
-            outputs=delete_output
+            outputs=delete_output,
+            concurrency_limit=1
         )
 
     # ── Identify & Detect ─────────────────────────────────────────────────────
@@ -670,13 +724,16 @@ with gr.Blocks(title="Tiger Identification & Detection") as demo:
         identify_btn.click(
             fn=identify_tiger,
             inputs=input_image,
-            outputs=[output_text, detection_annotated_img, reference_gallery]
+            outputs=[output_text, detection_annotated_img, reference_gallery],
+            concurrency_limit=1,
+            api_name="identify_tiger"
         )
 
         add_btn.click(
             fn=add_new_tiger,
             inputs=[tiger_name_input, input_image, provenance_input],
-            outputs=add_status
+            outputs=add_status,
+            concurrency_limit=1
         )
 
     # ── Tadoba Species Reference ──────────────────────────────────────────────
@@ -689,7 +746,11 @@ with gr.Blocks(title="Tiger Identification & Detection") as demo:
         )
         refresh_species_btn = gr.Button("Inspect Tadoba Species & Capabilities", variant="secondary")
         species_output = gr.Textbox(label="Verified Species and Model Capabilities", lines=24)
-        refresh_species_btn.click(fn=get_tadoba_species_table, outputs=species_output)
+        refresh_species_btn.click(
+            fn=get_tadoba_species_table,
+            outputs=species_output,
+            concurrency_limit=1
+        )
 
     # ── Pending Submissions Review ────────────────────────────────────────────
     with gr.Tab("Review Pending"):
@@ -698,7 +759,11 @@ with gr.Blocks(title="Tiger Identification & Detection") as demo:
 
         refresh_pending_btn = gr.Button("Refresh Pending List", variant="secondary")
         pending_list_output = gr.Textbox(label="Pending Submissions", lines=8)
-        refresh_pending_btn.click(fn=get_pending_summary, outputs=pending_list_output)
+        refresh_pending_btn.click(
+            fn=get_pending_summary,
+            outputs=pending_list_output,
+            concurrency_limit=1
+        )
 
         gr.HTML('<hr class="divider">')
         with gr.Row():
@@ -713,12 +778,14 @@ with gr.Blocks(title="Tiger Identification & Detection") as demo:
         approve_btn.click(
             fn=lambda sid, note: handle_review_submission(sid, "approve", note),
             inputs=[review_sub_id, reviewer_note],
-            outputs=review_status
+            outputs=review_status,
+            concurrency_limit=1
         )
         reject_btn.click(
             fn=lambda sid, note: handle_review_submission(sid, "reject", note),
             inputs=[review_sub_id, reviewer_note],
-            outputs=review_status
+            outputs=review_status,
+            concurrency_limit=1
         )
 
     # ── Batch ─────────────────────────────────────────────────────────────────
@@ -727,7 +794,11 @@ with gr.Blocks(title="Tiger Identification & Detection") as demo:
         gr.Markdown("Ranks all test images in `data/test/` against the reference database using cosine similarity.")
         batch_btn    = gr.Button("Run Batch Ranking", variant="primary")
         batch_output = gr.Textbox(label="Batch Results", lines=22)
-        batch_btn.click(fn=batch_identify, outputs=batch_output)
+        batch_btn.click(
+            fn=batch_identify,
+            outputs=batch_output,
+            concurrency_limit=1
+        )
 
     # ── Info ──────────────────────────────────────────────────────────────────
     with gr.Tab("Info"):
@@ -750,8 +821,35 @@ This system couples an animal localization and species verification stage with i
 - **Species Classifier** — MobileNetV3-Small (ImageNet-1k), ~24ms on CPU. Re-ID runs strictly on verified tiger crops.
 - **Re-ID Embedding** — ViT-Base (vit_base_patch16_224), 128-dimensional embedding
 - **Database Storage** — Atomic `.npz` vector matrix + companion JSON metadata
+- **Concurrency & Safety** — Gradio queue (max_size={QUEUE_MAX_SIZE}, concurrency={DEFAULT_CONCURRENCY_LIMIT}), max upload {MAX_UPLOAD_SIZE_MB}MB, {MAX_PIXEL_COUNT}px limit.
         """)
 
+# Configure queue with bounded size and default concurrency
+demo.queue(
+    max_size=QUEUE_MAX_SIZE,
+    default_concurrency_limit=DEFAULT_CONCURRENCY_LIMIT
+)
+
 if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser(description="Wild-ID Gradio Server")
+    parser.add_argument("--host", default=DEFAULT_HOST, help=f"Host to bind (default: {DEFAULT_HOST})")
+    parser.add_argument("--port", type=int, default=DEFAULT_PORT, help=f"Port to bind (default: {DEFAULT_PORT})")
+    args = parser.parse_args()
+
     initialize_system()
-    demo.launch(share=False, server_name="127.0.0.1", server_port=7861, css=css)
+    load_existing_database()
+
+    logger.info(
+        f"Launching Wild-ID on {args.host}:{args.port} "
+        f"(queue max_size={QUEUE_MAX_SIZE}, concurrency={DEFAULT_CONCURRENCY_LIMIT}, "
+        f"max_file_size={MAX_UPLOAD_SIZE_MB}mb, timeout={REQUEST_TIMEOUT_SECONDS}s)"
+    )
+
+    demo.launch(
+        share=False,
+        server_name=args.host,
+        server_port=args.port,
+        max_file_size=f"{MAX_UPLOAD_SIZE_MB}mb",
+        show_error=True
+    )

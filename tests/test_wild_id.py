@@ -280,7 +280,9 @@ def test_pending_flow_does_not_affect_matching(tmp_path):
         reference_features=ref_features_dict,
         pending_dir=pending_dir,
         reference_dir=reference_dir,
-        trash_dir=trash_dir
+        trash_dir=trash_dir,
+        npz_path=str(tmp_path / "test_ref.npz"),
+        json_path=str(tmp_path / "test_ref.json")
     )
     assert ok is True
     assert updated_meta["status"] == "approved"

@@ -56,7 +56,7 @@ class AnimalDetector:
         rgb_img = image.convert('RGB')
         tensor = self.transforms(rgb_img).unsqueeze(0).to(self.device)
 
-        with torch.no_grad():
+        with torch.inference_mode():
             outputs = self.model(tensor)[0]
 
         boxes = outputs['boxes'].cpu().numpy()
@@ -129,7 +129,7 @@ class SpeciesClassifier:
             }
 
         tensor = self.transforms(rgb_crop).unsqueeze(0).to(self.device)
-        with torch.no_grad():
+        with torch.inference_mode():
             logits = self.model(tensor)
             probs = torch.softmax(logits, dim=1)[0]
             top_score, top_idx = torch.topk(probs, k=1)

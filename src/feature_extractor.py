@@ -45,13 +45,11 @@ class TigerFeatureExtractor:
             np.ndarray of shape (128,) or None if extraction fails.
         """
         try:
-            if isinstance(image_input, Image.Image):
-                image = image_input.convert('RGB')
-            else:
-                image = Image.open(image_input).convert('RGB')
+            from src.utils import ensure_rgb_image
+            image = ensure_rgb_image(image_input)
 
             image_tensor = self.transform(image).unsqueeze(0).to(self.device)
-            with torch.no_grad():
+            with torch.inference_mode():
                 features = self.model(image_tensor)
             features = features.cpu().numpy().flatten()
             return features

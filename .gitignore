@@ -22,4 +22,5 @@ models/tiger_finetuned_vit.pth
 # Misc
 .DS_Store
 trash/
+logs/
 .pytest_cache/
