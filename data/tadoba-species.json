@@ -1,0 +1,517 @@
+[
+  {
+    "common_name": "Bengal Tiger",
+    "scientific_name": "Panthera tigris",
+    "group": "Mammals",
+    "tier": "Apex Predator",
+    "source_urls": [
+      "https://zsi.gov.in/",
+      "https://ntca.gov.in/",
+      "https://www.keybiodiversityareas.org/site/factsheet/18278",
+      "https://mytadoba.mahaforest.gov.in/"
+    ],
+    "verification_status": "verified"
+  },
+  {
+    "common_name": "Indian Leopard",
+    "scientific_name": "Panthera pardus",
+    "group": "Mammals",
+    "tier": "Co-predator",
+    "source_urls": [
+      "https://zsi.gov.in/",
+      "https://ntca.gov.in/",
+      "https://www.keybiodiversityareas.org/site/factsheet/18278",
+      "https://mytadoba.mahaforest.gov.in/"
+    ],
+    "verification_status": "verified"
+  },
+  {
+    "common_name": "Dhole / Asiatic Wild Dog",
+    "scientific_name": "Cuon alpinus",
+    "group": "Mammals",
+    "tier": "Co-predator",
+    "source_urls": [
+      "https://zsi.gov.in/",
+      "https://ntca.gov.in/",
+      "https://www.keybiodiversityareas.org/site/factsheet/18278",
+      "https://mytadoba.mahaforest.gov.in/"
+    ],
+    "verification_status": "verified"
+  },
+  {
+    "common_name": "Sloth Bear",
+    "scientific_name": "Melursus ursinus",
+    "group": "Mammals",
+    "tier": "Large Omnivore",
+    "source_urls": [
+      "https://zsi.gov.in/",
+      "https://ntca.gov.in/",
+      "https://www.keybiodiversityareas.org/site/factsheet/18278",
+      "https://mytadoba.mahaforest.gov.in/"
+    ],
+    "verification_status": "verified"
+  },
+  {
+    "common_name": "Striped Hyena",
+    "scientific_name": "Hyaena hyaena",
+    "group": "Mammals",
+    "tier": "Scavenger / Mesocarnivore",
+    "source_urls": [
+      "https://zsi.gov.in/",
+      "https://ntca.gov.in/",
+      "https://mytadoba.mahaforest.gov.in/"
+    ],
+    "verification_status": "verified"
+  },
+  {
+    "common_name": "Golden Jackal",
+    "scientific_name": "Canis aureus",
+    "group": "Mammals",
+    "tier": "Mesocarnivore",
+    "source_urls": [
+      "https://zsi.gov.in/",
+      "https://mytadoba.mahaforest.gov.in/"
+    ],
+    "verification_status": "verified"
+  },
+  {
+    "common_name": "Indian Wolf",
+    "scientific_name": "Canis lupus pallipes",
+    "group": "Mammals",
+    "tier": "Carnivore",
+    "source_urls": [
+      "https://zsi.gov.in/",
+      "https://mytadoba.mahaforest.gov.in/"
+    ],
+    "verification_status": "verified"
+  },
+  {
+    "common_name": "Indian Fox",
+    "scientific_name": "Vulpes bengalensis",
+    "group": "Mammals",
+    "tier": "Mesocarnivore",
+    "source_urls": [
+      "https://zsi.gov.in/",
+      "https://mytadoba.mahaforest.gov.in/"
+    ],
+    "verification_status": "verified"
+  },
+  {
+    "common_name": "Jungle Cat",
+    "scientific_name": "Felis chaus",
+    "group": "Mammals",
+    "tier": "Small Carnivore",
+    "source_urls": [
+      "https://zsi.gov.in/",
+      "https://mytadoba.mahaforest.gov.in/"
+    ],
+    "verification_status": "verified"
+  },
+  {
+    "common_name": "Leopard Cat",
+    "scientific_name": "Prionailurus bengalensis",
+    "group": "Mammals",
+    "tier": "Small Carnivore",
+    "source_urls": [
+      "https://zsi.gov.in/",
+      "https://mytadoba.mahaforest.gov.in/"
+    ],
+    "verification_status": "verified"
+  },
+  {
+    "common_name": "Rusty-spotted Cat",
+    "scientific_name": "Prionailurus rubiginosus",
+    "group": "Mammals",
+    "tier": "Small Carnivore",
+    "source_urls": [
+      "https://zsi.gov.in/",
+      "https://mytadoba.mahaforest.gov.in/"
+    ],
+    "verification_status": "verified"
+  },
+  {
+    "common_name": "Gaur / Indian Bison",
+    "scientific_name": "Bos gaurus",
+    "group": "Mammals",
+    "tier": "Megaherbivore",
+    "source_urls": [
+      "https://zsi.gov.in/",
+      "https://ntca.gov.in/",
+      "https://www.keybiodiversityareas.org/site/factsheet/18278",
+      "https://mytadoba.mahaforest.gov.in/"
+    ],
+    "verification_status": "verified"
+  },
+  {
+    "common_name": "Sambar",
+    "scientific_name": "Rusa unicolor",
+    "group": "Mammals",
+    "tier": "Large Herbivore",
+    "source_urls": [
+      "https://zsi.gov.in/",
+      "https://ntca.gov.in/",
+      "https://www.keybiodiversityareas.org/site/factsheet/18278",
+      "https://mytadoba.mahaforest.gov.in/"
+    ],
+    "verification_status": "verified"
+  },
+  {
+    "common_name": "Chital / Spotted Deer",
+    "scientific_name": "Axis axis",
+    "group": "Mammals",
+    "tier": "Herbivore",
+    "source_urls": [
+      "https://zsi.gov.in/",
+      "https://ntca.gov.in/",
+      "https://www.keybiodiversityareas.org/site/factsheet/18278",
+      "https://mytadoba.mahaforest.gov.in/"
+    ],
+    "verification_status": "verified"
+  },
+  {
+    "common_name": "Nilgai / Blue Bull",
+    "scientific_name": "Boselaphus tragocamelus",
+    "group": "Mammals",
+    "tier": "Large Herbivore",
+    "source_urls": [
+      "https://zsi.gov.in/",
+      "https://ntca.gov.in/",
+      "https://www.keybiodiversityareas.org/site/factsheet/18278",
+      "https://mytadoba.mahaforest.gov.in/"
+    ],
+    "verification_status": "verified"
+  },
+  {
+    "common_name": "Wild Boar",
+    "scientific_name": "Sus scrofa",
+    "group": "Mammals",
+    "tier": "Omnivore / Herbivore",
+    "source_urls": [
+      "https://zsi.gov.in/",
+      "https://ntca.gov.in/",
+      "https://www.keybiodiversityareas.org/site/factsheet/18278",
+      "https://mytadoba.mahaforest.gov.in/"
+    ],
+    "verification_status": "verified"
+  },
+  {
+    "common_name": "Barking Deer / Indian Muntjac",
+    "scientific_name": "Muntiacus muntjak",
+    "group": "Mammals",
+    "tier": "Herbivore",
+    "source_urls": [
+      "https://zsi.gov.in/",
+      "https://mytadoba.mahaforest.gov.in/"
+    ],
+    "verification_status": "verified"
+  },
+  {
+    "common_name": "Four-horned Antelope / Chausingha",
+    "scientific_name": "Tetracerus quadricornis",
+    "group": "Mammals",
+    "tier": "Small Herbivore",
+    "source_urls": [
+      "https://zsi.gov.in/",
+      "https://mytadoba.mahaforest.gov.in/"
+    ],
+    "verification_status": "verified"
+  },
+  {
+    "common_name": "Indian Crested Porcupine",
+    "scientific_name": "Hystrix indica",
+    "group": "Mammals",
+    "tier": "Small Mammal",
+    "source_urls": [
+      "https://zsi.gov.in/",
+      "https://mytadoba.mahaforest.gov.in/"
+    ],
+    "verification_status": "verified"
+  },
+  {
+    "common_name": "Indian Pangolin",
+    "scientific_name": "Manis crassicaudata",
+    "group": "Mammals",
+    "tier": "Small Mammal",
+    "source_urls": [
+      "https://zsi.gov.in/",
+      "https://mytadoba.mahaforest.gov.in/"
+    ],
+    "verification_status": "verified"
+  },
+  {
+    "common_name": "Northern Plains Gray Langur",
+    "scientific_name": "Semnopithecus entellus",
+    "group": "Mammals",
+    "tier": "Primate",
+    "source_urls": [
+      "https://zsi.gov.in/",
+      "https://www.keybiodiversityareas.org/site/factsheet/18278",
+      "https://mytadoba.mahaforest.gov.in/"
+    ],
+    "verification_status": "verified"
+  },
+  {
+    "common_name": "Rhesus Macaque",
+    "scientific_name": "Macaca mulatta",
+    "group": "Mammals",
+    "tier": "Primate",
+    "source_urls": [
+      "https://zsi.gov.in/",
+      "https://mytadoba.mahaforest.gov.in/"
+    ],
+    "verification_status": "verified"
+  },
+  {
+    "common_name": "Indian Hare",
+    "scientific_name": "Lepus nigricollis",
+    "group": "Mammals",
+    "tier": "Small Herbivore",
+    "source_urls": [
+      "https://zsi.gov.in/",
+      "https://mytadoba.mahaforest.gov.in/"
+    ],
+    "verification_status": "verified"
+  },
+  {
+    "common_name": "Honey Badger / Ratel",
+    "scientific_name": "Mellivora capensis",
+    "group": "Mammals",
+    "tier": "Small Carnivore",
+    "source_urls": [
+      "https://zsi.gov.in/",
+      "https://mytadoba.mahaforest.gov.in/"
+    ],
+    "verification_status": "verified"
+  },
+  {
+    "common_name": "Common Palm Civet",
+    "scientific_name": "Paradoxurus hermaphroditus",
+    "group": "Mammals",
+    "tier": "Small Carnivore",
+    "source_urls": [
+      "https://zsi.gov.in/",
+      "https://mytadoba.mahaforest.gov.in/"
+    ],
+    "verification_status": "verified"
+  },
+  {
+    "common_name": "Small Indian Civet",
+    "scientific_name": "Viverricula indica",
+    "group": "Mammals",
+    "tier": "Small Carnivore",
+    "source_urls": [
+      "https://zsi.gov.in/",
+      "https://mytadoba.mahaforest.gov.in/"
+    ],
+    "verification_status": "verified"
+  },
+  {
+    "common_name": "Indian Grey Mongoose",
+    "scientific_name": "Urva edwardsii",
+    "group": "Mammals",
+    "tier": "Small Carnivore",
+    "source_urls": [
+      "https://zsi.gov.in/",
+      "https://mytadoba.mahaforest.gov.in/"
+    ],
+    "verification_status": "verified"
+  },
+  {
+    "common_name": "Ruddy Mongoose",
+    "scientific_name": "Urva smithii",
+    "group": "Mammals",
+    "tier": "Small Carnivore",
+    "source_urls": [
+      "https://zsi.gov.in/",
+      "https://mytadoba.mahaforest.gov.in/"
+    ],
+    "verification_status": "verified"
+  },
+  {
+    "common_name": "Indian Peafowl",
+    "scientific_name": "Pavo cristatus",
+    "group": "Birds",
+    "tier": "Avifauna / Galliform",
+    "source_urls": [
+      "https://zsi.gov.in/",
+      "https://www.keybiodiversityareas.org/site/factsheet/18278",
+      "https://mytadoba.mahaforest.gov.in/"
+    ],
+    "verification_status": "verified"
+  },
+  {
+    "common_name": "Crested Serpent Eagle",
+    "scientific_name": "Spilornis cheela",
+    "group": "Birds",
+    "tier": "Avifauna / Raptor",
+    "source_urls": [
+      "https://zsi.gov.in/",
+      "https://www.keybiodiversityareas.org/site/factsheet/18278",
+      "https://mytadoba.mahaforest.gov.in/"
+    ],
+    "verification_status": "verified"
+  },
+  {
+    "common_name": "Changeable Hawk-Eagle",
+    "scientific_name": "Nisaetus cirrhatus",
+    "group": "Birds",
+    "tier": "Avifauna / Raptor",
+    "source_urls": [
+      "https://zsi.gov.in/",
+      "https://www.keybiodiversityareas.org/site/factsheet/18278",
+      "https://mytadoba.mahaforest.gov.in/"
+    ],
+    "verification_status": "verified"
+  },
+  {
+    "common_name": "White-eyed Buzzard",
+    "scientific_name": "Butastur teesa",
+    "group": "Birds",
+    "tier": "Avifauna / Raptor",
+    "source_urls": [
+      "https://zsi.gov.in/",
+      "https://www.keybiodiversityareas.org/site/factsheet/18278",
+      "https://mytadoba.mahaforest.gov.in/"
+    ],
+    "verification_status": "verified"
+  },
+  {
+    "common_name": "Brown Fish Owl",
+    "scientific_name": "Ketupa zeylonensis",
+    "group": "Birds",
+    "tier": "Avifauna / Raptor",
+    "source_urls": [
+      "https://zsi.gov.in/",
+      "https://www.keybiodiversityareas.org/site/factsheet/18278",
+      "https://mytadoba.mahaforest.gov.in/"
+    ],
+    "verification_status": "verified"
+  },
+  {
+    "common_name": "Malabar Pied Hornbill",
+    "scientific_name": "Anthracoceros coronatus",
+    "group": "Birds",
+    "tier": "Avifauna / Forest Bird",
+    "source_urls": [
+      "https://zsi.gov.in/",
+      "https://www.keybiodiversityareas.org/site/factsheet/18278",
+      "https://mytadoba.mahaforest.gov.in/"
+    ],
+    "verification_status": "verified"
+  },
+  {
+    "common_name": "Greater Racket-tailed Drongo",
+    "scientific_name": "Dicrurus paradiseus",
+    "group": "Birds",
+    "tier": "Avifauna / Passerine",
+    "source_urls": [
+      "https://zsi.gov.in/",
+      "https://www.keybiodiversityareas.org/site/factsheet/18278",
+      "https://mytadoba.mahaforest.gov.in/"
+    ],
+    "verification_status": "verified"
+  },
+  {
+    "common_name": "Painted Stork",
+    "scientific_name": "Mycteria leucocephala",
+    "group": "Birds",
+    "tier": "Avifauna / Wetland Bird",
+    "source_urls": [
+      "https://zsi.gov.in/",
+      "https://www.keybiodiversityareas.org/site/factsheet/18278",
+      "https://mytadoba.mahaforest.gov.in/"
+    ],
+    "verification_status": "verified"
+  },
+  {
+    "common_name": "Asian Paradise-Flycatcher",
+    "scientific_name": "Terpsiphone paradisi",
+    "group": "Birds",
+    "tier": "Avifauna / Passerine",
+    "source_urls": [
+      "https://zsi.gov.in/",
+      "https://www.keybiodiversityareas.org/site/factsheet/18278",
+      "https://mytadoba.mahaforest.gov.in/"
+    ],
+    "verification_status": "verified"
+  },
+  {
+    "common_name": "Mugger Crocodile",
+    "scientific_name": "Crocodylus palustris",
+    "group": "Reptiles",
+    "tier": "Reptile / Aquatic Predator",
+    "source_urls": [
+      "https://zsi.gov.in/",
+      "https://ntca.gov.in/",
+      "https://www.keybiodiversityareas.org/site/factsheet/18278",
+      "https://mytadoba.mahaforest.gov.in/"
+    ],
+    "verification_status": "verified"
+  },
+  {
+    "common_name": "Indian Rock Python",
+    "scientific_name": "Python molurus",
+    "group": "Reptiles",
+    "tier": "Reptile / Constrictor",
+    "source_urls": [
+      "https://zsi.gov.in/",
+      "https://mytadoba.mahaforest.gov.in/"
+    ],
+    "verification_status": "verified"
+  },
+  {
+    "common_name": "Spectacled Cobra",
+    "scientific_name": "Naja naja",
+    "group": "Reptiles",
+    "tier": "Reptile / Venomous Snake",
+    "source_urls": [
+      "https://zsi.gov.in/",
+      "https://mytadoba.mahaforest.gov.in/"
+    ],
+    "verification_status": "verified"
+  },
+  {
+    "common_name": "Russell's Viper",
+    "scientific_name": "Daboia russelii",
+    "group": "Reptiles",
+    "tier": "Reptile / Venomous Snake",
+    "source_urls": [
+      "https://zsi.gov.in/",
+      "https://mytadoba.mahaforest.gov.in/"
+    ],
+    "verification_status": "verified"
+  },
+  {
+    "common_name": "Common Krait",
+    "scientific_name": "Bungarus caeruleus",
+    "group": "Reptiles",
+    "tier": "Reptile / Venomous Snake",
+    "source_urls": [
+      "https://zsi.gov.in/",
+      "https://mytadoba.mahaforest.gov.in/"
+    ],
+    "verification_status": "verified"
+  },
+  {
+    "common_name": "Bengal Monitor",
+    "scientific_name": "Varanus bengalensis",
+    "group": "Reptiles",
+    "tier": "Reptile / Lizard",
+    "source_urls": [
+      "https://zsi.gov.in/",
+      "https://mytadoba.mahaforest.gov.in/"
+    ],
+    "verification_status": "verified"
+  },
+  {
+    "common_name": "Indian Flapshell Turtle",
+    "scientific_name": "Lissemys punctata",
+    "group": "Reptiles",
+    "tier": "Reptile / Freshwater Turtle",
+    "source_urls": [
+      "https://zsi.gov.in/",
+      "https://mytadoba.mahaforest.gov.in/"
+    ],
+    "verification_status": "verified"
+  }
+]

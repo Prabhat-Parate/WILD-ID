@@ -17,6 +17,7 @@ temp_query.jpg
 *.jpg
 *.png
 data/*
+!data/tadoba-species.json
 models/tiger_finetuned_vit.pth
 # Misc
 .DS_Store

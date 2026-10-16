@@ -2,6 +2,7 @@ import gradio as gr
 import os
 import sys
 import time
+import json
 from pathlib import Path
 from PIL import Image
 
@@ -25,6 +26,12 @@ from src.config import (
 )
 from src.feature_extractor import TigerFeatureExtractor
 from src.matcher import TigerMatcher
+from src.detector import (
+    AnimalDetector,
+    SpeciesClassifier,
+    process_frame,
+    get_tadoba_species_with_capabilities
+)
 from src.utils import (
     parse_reference_structure,
     save_features_npz,
@@ -39,16 +46,24 @@ from src.utils import (
     review_pending_submission
 )
 
-# Global runtime state (scoped to model and reference matcher)
+# Global runtime state
 extractor = None
 matcher = None
+detector = None
+classifier = None
 reference_features = {}
 
 
 def initialize_system():
-    global extractor, matcher
-    extractor = TigerFeatureExtractor(device='cpu')
-    matcher = TigerMatcher()
+    global extractor, matcher, detector, classifier
+    if extractor is None:
+        extractor = TigerFeatureExtractor(device='cpu')
+    if matcher is None:
+        matcher = TigerMatcher()
+    if detector is None:
+        detector = AnimalDetector(device='cpu')
+    if classifier is None:
+        classifier = SpeciesClassifier(device='cpu')
 
 
 # ── Database Management ───────────────────────────────────────────────────────
@@ -71,12 +86,11 @@ def load_existing_database():
     if not reference_features:
         return "Database file exists but is empty. Rebuild it."
 
-    # Reconstruct matcher
     matcher = TigerMatcher()
     for img_path, features in reference_features.items():
         parts = Path(img_path).parts
         try:
-            name = parts[-2]  # folder name = tiger identity
+            name = parts[-2]
         except IndexError:
             name = "unknown"
         matcher.add_reference(name, features, img_path)
@@ -166,9 +180,7 @@ def build_reference_database():
 
 
 def delete_tiger(tiger_name, confirm_delete=False):
-    """
-    Move a tiger from the reference database and filesystem to trash/ after explicit confirmation.
-    """
+    """Move a tiger to trash/ after explicit confirmation."""
     global matcher, reference_features
 
     tiger_name = (tiger_name or "").strip()
@@ -195,20 +207,16 @@ def delete_tiger(tiger_name, confirm_delete=False):
             f"Known tigers ({len(known)} total):\n" + "\n".join(f"  {n}" for n in known[:20])
         )
 
-    # Remove from matcher
     del matcher.reference_features[sanitized_name]
     if sanitized_name in matcher.reference_names:
         del matcher.reference_names[sanitized_name]
 
-    # Remove from reference_features dict
     keys_to_remove = [k for k in reference_features if Path(k).parts[-2] == sanitized_name]
     for k in keys_to_remove:
         del reference_features[k]
 
-    # Persist updated features atomically to NPZ + JSON
     save_features_npz(reference_features, NPZ_PATH, METADATA_JSON_PATH)
 
-    # Move folder to trash/ instead of destructive rmtree
     tiger_folder = Path(REFERENCE_DIR) / sanitized_name
     trash_dest = None
     if tiger_folder.exists():
@@ -225,14 +233,14 @@ def delete_tiger(tiger_name, confirm_delete=False):
     )
 
 
-# ── Identification ────────────────────────────────────────────────────────────
+# ── Detection & Identification Pipeline ───────────────────────────────────────
 
 def identify_tiger(image):
     """
-    Identify a query image by ranking against the reference database.
-    Operates in memory on RGB converted images with no shared disk state.
+    Run detection, privacy filtering, species verification,
+    and gated individual re-identification.
     """
-    global extractor, matcher
+    global extractor, matcher, detector, classifier
 
     if matcher is None or not matcher.reference_features:
         return "Load or build the reference database first.", None, []
@@ -241,52 +249,76 @@ def identify_tiger(image):
         return "Please upload an image to identify.", None, []
 
     try:
-        # Convert to RGB in-memory (safely handles RGBA, P, etc.)
+        if detector is None or classifier is None:
+            initialize_system()
+
         rgb_image = ensure_rgb_image(image)
 
-        # Extract features directly in memory
-        features = extractor.extract_features(rgb_image)
-        if features is None:
-            return "Feature extraction failed on query image.", None, []
+        # Execute frame pipeline
+        frame_res = process_frame(
+            image=rgb_image,
+            detector=detector,
+            classifier=classifier,
+            reid_extractor=extractor,
+            reid_matcher=matcher,
+            score_threshold=0.25,
+            max_detections=10
+        )
 
-        best_match, best_score, all_scores = matcher.find_match(features, threshold=SIMILARITY_THRESHOLD)
-        top_candidates = matcher.get_top_candidates(features, top_k=TOP_K_CANDIDATES)
-
-        # Determine outcome phrasing
-        if best_match is not None:
-            outcome_header = f"OUTCOME: {OUTCOME_ABOVE_THRESHOLD}"
-        else:
-            outcome_header = f"OUTCOME: {OUTCOME_BELOW_THRESHOLD}"
-
-        result_lines = [
-            outcome_header,
-            "─" * 50,
-            f"Threshold                  : {SIMILARITY_THRESHOLD:.4f} ({THRESHOLD_LABEL})",
-            f"Highest {SIMILARITY_LABEL.lower()}: {best_score:.4f}",
-        ]
-        if best_match is not None:
-            result_lines.append(f"Top Candidate              : {best_match}")
-
-        result_lines.append(f"\nNote: {SIMILARITY_NOTE}\n")
-        result_lines.append(f"Top {len(top_candidates)} Candidates ranked by {SIMILARITY_LABEL.lower()}:")
+        annotated_img = frame_res['annotated_image']
+        detections = frame_res['detections']
+        summary_text = frame_res['summary_text']
+        tiger_crops = frame_res['tiger_crops']
 
         gallery_items = []
-        for i, cand in enumerate(top_candidates, 1):
-            name = cand["name"]
-            score = cand["score"]
-            bar_len = max(0, min(20, int(score * 20)))
-            bar = '█' * bar_len
-            result_lines.append(f"  {i}. {name:15s}  {SIMILARITY_LABEL}: {score:.4f}  {bar}")
 
-            # Collect reference images for gallery
-            for ref_img in cand["reference_images"][:2]:
-                if os.path.exists(ref_img):
-                    gallery_items.append((ref_img, f"#{i} {name} (Cosine sim: {score:.4f})"))
+        # If any verified tiger was found, run full top-5 candidate retrieval
+        tiger_detections = [d for d in detections if d.get('is_tiger')]
+        if tiger_detections and tiger_crops:
+            # Evaluate the primary tiger crop
+            primary_crop = tiger_crops[0]
+            features = extractor.extract_features(primary_crop)
 
-        return "\n".join(result_lines), rgb_image, gallery_items
+            if features is not None:
+                best_match, best_score, all_scores = matcher.find_match(features, threshold=SIMILARITY_THRESHOLD)
+                top_candidates = matcher.get_top_candidates(features, top_k=TOP_K_CANDIDATES)
+
+                outcome_header = (
+                    f"OUTCOME: {OUTCOME_ABOVE_THRESHOLD}"
+                    if best_match is not None
+                    else f"OUTCOME: {OUTCOME_BELOW_THRESHOLD}"
+                )
+
+                reid_lines = [
+                    "\n" + "═" * 55,
+                    "INDIVIDUAL RE-IDENTIFICATION RANKING (TIGER CROP)",
+                    "═" * 55,
+                    outcome_header,
+                    f"Threshold                  : {SIMILARITY_THRESHOLD:.4f} ({THRESHOLD_LABEL})",
+                    f"Highest {SIMILARITY_LABEL.lower()}: {best_score:.4f}",
+                ]
+                if best_match is not None:
+                    reid_lines.append(f"Top Candidate              : {best_match}")
+
+                reid_lines.append(f"\nNote: {SIMILARITY_NOTE}\n")
+                reid_lines.append(f"Top {len(top_candidates)} Candidates ranked by {SIMILARITY_LABEL.lower()}:")
+
+                for i, cand in enumerate(top_candidates, 1):
+                    name = cand["name"]
+                    score = cand["score"]
+                    bar = '█' * max(0, min(20, int(score * 20)))
+                    reid_lines.append(f"  {i}. {name:15s}  {SIMILARITY_LABEL}: {score:.4f}  {bar}")
+
+                    for ref_img in cand["reference_images"][:2]:
+                        if os.path.exists(ref_img):
+                            gallery_items.append((ref_img, f"#{i} {name} (Cosine sim: {score:.4f})"))
+
+                summary_text += "\n" + "\n".join(reid_lines)
+
+        return summary_text, annotated_img, gallery_items
 
     except Exception as e:
-        return f"Error during identification: {str(e)}", None, []
+        return f"Error during processing: {str(e)}", None, []
 
 
 # Backward compatibility alias
@@ -294,10 +326,7 @@ identify_leopard = identify_tiger
 
 
 def add_new_tiger(tiger_name, image, provenance_note=""):
-    """
-    Submit a query image to the pending set with provenance metadata.
-    Does NOT affect matching until reviewer explicitly confirms.
-    """
+    """Submit a query image to pending set with provenance metadata."""
     if image is None:
         return "No query image available to submit."
 
@@ -321,7 +350,6 @@ def add_new_tiger(tiger_name, image, provenance_note=""):
 
 
 def get_pending_summary():
-    """Retrieve text summary of pending submissions."""
     submissions = list_pending_submissions(PENDING_DIR)
     if not submissions:
         return "No pending submissions currently waiting for review."
@@ -336,7 +364,6 @@ def get_pending_summary():
 
 
 def handle_review_submission(submission_id, action, reviewer_note=""):
-    """Review action (approve or reject) for a pending submission."""
     global extractor, matcher, reference_features
 
     submission_id = (submission_id or "").strip()
@@ -357,10 +384,40 @@ def handle_review_submission(submission_id, action, reviewer_note=""):
     return msg
 
 
+def get_tadoba_species_table():
+    """Retrieve formatted Tadoba species list with model capabilities."""
+    global classifier
+    if classifier is None:
+        initialize_system()
+
+    species_list = get_tadoba_species_with_capabilities(classifier=classifier)
+    if not species_list:
+        return "No species records found in data/tadoba-species.json."
+
+    lines = [
+        "VERIFIED TADOBA-ANDHARI FAUNA & MODEL CAPABILITY",
+        "═" * 70,
+        "Verified against: ZSI Conservation Area Series (Vol 25), NTCA brief,",
+        "BirdLife/KBA factsheet 18278, and Maharashtra Forest Dept checklist.",
+        "Scores and capabilities computed directly from loaded model label set.",
+        "═" * 70,
+        f"{'Common Name':28s} {'Scientific Name':26s} {'Model Can Name?':16s} {'Matched Label':18s}",
+        "─" * 90
+    ]
+
+    for s in species_list:
+        c_name = s.get('common_name', '')[:27]
+        s_name = s.get('scientific_name', '')[:25]
+        can_name = "YES [Verified]" if s.get('model_can_name') else "NO (Bypassed)"
+        label = s.get('matched_model_label', '')[:17]
+        lines.append(f"{c_name:28s} {s_name:26s} {can_name:16s} {label:18s}")
+
+    return "\n".join(lines)
+
+
 # ── Batch Identification ──────────────────────────────────────────────────────
 
 def batch_identify(test_dir=TEST_DIR):
-    """Run identification across all images in test_dir."""
     global extractor, matcher
 
     if matcher is None or not matcher.reference_features:
@@ -394,7 +451,7 @@ def batch_identify(test_dir=TEST_DIR):
     return results
 
 
-# ── CSS (No external font imports; uses local system font stack) ───────────────
+# ── CSS (No external font imports; uses native system fonts) ───────────────────
 css = """
 footer { display: none !important; }
 .built-with { display: none !important; }
@@ -500,26 +557,6 @@ input[type="text"], .gr-textbox input {
     color: #b0b0b0 !important;
 }
 
-label span, .gr-form label {
-    font-family: Consolas, "Courier New", Courier, monospace !important;
-    font-size: 0.68rem !important;
-    letter-spacing: 0.1em !important;
-    text-transform: uppercase !important;
-    color: #555 !important;
-}
-
-.gr-image {
-    border: 1px solid #222 !important;
-    border-radius: 2px !important;
-    background: #141414 !important;
-}
-
-.gr-gallery {
-    background: #141414 !important;
-    border: 1px solid #222 !important;
-    border-radius: 2px !important;
-}
-
 .threshold-note {
     font-family: Consolas, "Courier New", Courier, monospace;
     font-size: 0.72rem;
@@ -546,11 +583,11 @@ label span, .gr-form label {
 """
 
 # ── Gradio Interface ──────────────────────────────────────────────────────────
-with gr.Blocks(title="Tiger Identification") as demo:
+with gr.Blocks(title="Tiger Identification & Detection") as demo:
 
     gr.HTML("""
     <div class="header-block">
-        <h1>Tiger Individual Identification System</h1>
+        <h1>Tiger Detection & Re-Identification System</h1>
     </div>
     """)
 
@@ -590,27 +627,27 @@ with gr.Blocks(title="Tiger Identification") as demo:
             outputs=delete_output
         )
 
-    # ── Identify ──────────────────────────────────────────────────────────────
-    with gr.Tab("Identify"):
-        gr.Markdown("#### Single Image Candidate Ranking")
+    # ── Identify & Detect ─────────────────────────────────────────────────────
+    with gr.Tab("Detect & Identify"):
+        gr.Markdown("#### Animal Localization, Privacy Suppression & Candidate Ranking")
         gr.HTML(
             f'<div class="disclaimer-banner">'
-            f'<strong>Cosine similarity threshold:</strong> {SIMILARITY_THRESHOLD:.2f} '
-            f'({THRESHOLD_LABEL}).<br>'
+            f'<strong>Pipeline Stages:</strong> 1. Localizer (SSDLite320) &rarr; 2. Privacy Check (People suppressed) &rarr; 3. Species Verifier (MobileNetV3) &rarr; 4. Tiger Re-ID.<br>'
+            f'<strong>Cosine similarity threshold:</strong> {SIMILARITY_THRESHOLD:.2f} ({THRESHOLD_LABEL}). Detection scores are ranking heuristics, not probabilities.<br>'
             f'<em>{SIMILARITY_NOTE}</em>'
             f'</div>'
         )
 
         with gr.Row():
             with gr.Column(scale=1):
-                input_image  = gr.Image(label="Query Image", type="pil")
-                identify_btn = gr.Button("Rank Candidates", variant="primary")
+                input_image  = gr.Image(label="Camera Trap Image", type="pil")
+                identify_btn = gr.Button("Detect & Rank Candidates", variant="primary")
+                detection_annotated_img = gr.Image(label="Detections (Boxes & Heuristic Scores)", type="pil")
             with gr.Column(scale=1):
-                output_text  = gr.Textbox(label="Results", lines=15)
-                output_image = gr.Image(visible=False)
+                output_text  = gr.Textbox(label="Detection & Identification Report", lines=18)
 
         gr.HTML('<hr class="divider">')
-        gr.Markdown("#### Top 5 Candidate Reference Images")
+        gr.Markdown("#### Top 5 Candidate Reference Images (Verified Tiger Only)")
         reference_gallery = gr.Gallery(label="Reference images of top candidates", columns=5, height="auto")
 
         gr.HTML('<hr class="divider">')
@@ -633,7 +670,7 @@ with gr.Blocks(title="Tiger Identification") as demo:
         identify_btn.click(
             fn=identify_tiger,
             inputs=input_image,
-            outputs=[output_text, output_image, reference_gallery]
+            outputs=[output_text, detection_annotated_img, reference_gallery]
         )
 
         add_btn.click(
@@ -641,6 +678,18 @@ with gr.Blocks(title="Tiger Identification") as demo:
             inputs=[tiger_name_input, input_image, provenance_input],
             outputs=add_status
         )
+
+    # ── Tadoba Species Reference ──────────────────────────────────────────────
+    with gr.Tab("Tadoba Species"):
+        gr.Markdown("#### Verified Tadoba-Andhari Species & Model Capabilities")
+        gr.Markdown(
+            "Lists verified species from ZSI Conservation Area Series (Vol 25), NTCA brief, "
+            "BirdLife/KBA factsheet 18278, and Maharashtra Forest Department checklist. "
+            "Model naming capability is evaluated directly from the model's verified label set."
+        )
+        refresh_species_btn = gr.Button("Inspect Tadoba Species & Capabilities", variant="secondary")
+        species_output = gr.Textbox(label="Verified Species and Model Capabilities", lines=24)
+        refresh_species_btn.click(fn=get_tadoba_species_table, outputs=species_output)
 
     # ── Pending Submissions Review ────────────────────────────────────────────
     with gr.Tab("Review Pending"):
@@ -675,7 +724,7 @@ with gr.Blocks(title="Tiger Identification") as demo:
     # ── Batch ─────────────────────────────────────────────────────────────────
     with gr.Tab("Batch"):
         gr.Markdown("#### Batch Candidate Ranking")
-        gr.Markdown(f"Ranks all test images in `data/test/` against the reference database using cosine similarity.")
+        gr.Markdown("Ranks all test images in `data/test/` against the reference database using cosine similarity.")
         batch_btn    = gr.Button("Run Batch Ranking", variant="primary")
         batch_output = gr.Textbox(label="Batch Results", lines=22)
         batch_btn.click(fn=batch_identify, outputs=batch_output)
@@ -685,21 +734,22 @@ with gr.Blocks(title="Tiger Identification") as demo:
         gr.Markdown(f"""
 #### About
 
-This system ranks candidate tiger identities by comparing stripe pattern embeddings using deep learning feature representations.
+This system couples an animal localization and species verification stage with individual tiger re-identification.
 
 #### Important Honesty Guidelines
 
 - **Cosine similarity** is a ranking signal, not a probability, confidence, or verified individual identity.
 - {SIMILARITY_NOTE}
 - Threshold is currently set to `{SIMILARITY_THRESHOLD:.2f}` ({THRESHOLD_LABEL}).
+- Scores produced by localizers and classifiers are ranking heuristics, not calibrated probabilities.
 
-#### Method
+#### Detection & Verification Architecture
 
-- **Backbone** — ViT-Base (vit_base_patch16_224), last 4 blocks fine-tuned
-- **Embedding** — 128-dimensional, L2 normalized
-- **Ranking** — Cosine similarity against reference database
+- **Localizer** — SSDLite320-MobileNetV3 (BSD 3-Clause, COCO), ~140ms on CPU
+- **Privacy Rule** — People are detected and suppressed immediately; never cropped, stored, or re-identified.
+- **Species Classifier** — MobileNetV3-Small (ImageNet-1k), ~24ms on CPU. Re-ID runs strictly on verified tiger crops.
+- **Re-ID Embedding** — ViT-Base (vit_base_patch16_224), 128-dimensional embedding
 - **Database Storage** — Atomic `.npz` vector matrix + companion JSON metadata
-- **Safe Operations** — Deletions move to `trash/` after explicit confirmation; new identities require reviewer confirmation before affecting matching.
         """)
 
 if __name__ == "__main__":
