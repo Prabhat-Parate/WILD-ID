@@ -78,13 +78,16 @@ class AnimalDetector:
             else:
                 category = 'other'
 
-            # Scale box coordinates from 320x320 back to original image dimensions
+            # Torchvision already returns boxes in original image coordinates.
             orig_w, orig_h = rgb_img.size
-            # SSDLite transform resizes to (320, 320)
-            x1 = max(0.0, float(box[0]) * (orig_w / 320.0))
-            y1 = max(0.0, float(box[1]) * (orig_h / 320.0))
-            x2 = min(float(orig_w), float(box[2]) * (orig_w / 320.0))
-            y2 = min(float(orig_h), float(box[3]) * (orig_h / 320.0))
+            x1 = max(0.0, min(float(orig_w), float(box[0])))
+            y1 = max(0.0, min(float(orig_h), float(box[1])))
+            x2 = max(0.0, min(float(orig_w), float(box[2])))
+            y2 = max(0.0, min(float(orig_h), float(box[3])))
+
+            # Skip invalid or zero-area boxes.
+            if x2 <= x1 or y2 <= y1:
+                continue
 
             results.append({
                 'box': [round(x1, 1), round(y1, 1), round(x2, 1), round(y2, 1)],
@@ -230,7 +233,9 @@ def process_frame(
     reid_extractor = None,
     reid_matcher = None,
     score_threshold = 0.25,
-    max_detections = 10
+    max_detections = 10,
+    speciesnet_classifier=None,
+    speciesnet_threshold=0.65
 ):
     """
     Execute complete localization, privacy filtering, species verification,
@@ -264,7 +269,6 @@ def process_frame(
         }
 
     summary_lines.append(f"Detections in frame ({len(raw_detections)} bounded items):")
-    summary_lines.append("─" * 55)
 
     for idx, det in enumerate(raw_detections, 1):
         box = det['box']
@@ -273,6 +277,28 @@ def process_frame(
         raw_label = det['raw_label']
 
         x1, y1, x2, y2 = box
+
+        # Validate detector coordinates before cropping or drawing.
+        img_w, img_h = rgb_img.size
+        try:
+            x1, y1, x2, y2 = (int(round(float(v))) for v in (x1, y1, x2, y2))
+        except (TypeError, ValueError, OverflowError):
+            summary_lines.append(f"  {idx}. Skipped detection with invalid coordinates.")
+            continue
+
+        # Normalize reversed corners, then clip to image boundaries.
+        x1, x2 = sorted((x1, x2))
+        y1, y2 = sorted((y1, y2))
+        x1 = max(0, min(x1, img_w))
+        x2 = max(0, min(x2, img_w))
+        y1 = max(0, min(y1, img_h))
+        y2 = max(0, min(y2, img_h))
+
+        if x2 <= x1 or y2 <= y1:
+            summary_lines.append(f"  {idx}. Skipped empty or out-of-frame detection.")
+            continue
+
+        box = (x1, y1, x2, y2)
 
         if category == 'person':
             # PRIVACY ENFORCEMENT: Never crop, never store, never re-identify people
@@ -337,12 +363,46 @@ def process_frame(
 
                 else:
                     display_label = f"Non-tiger animal ({species_label})"
+                    speciesnet_label = None
+                    scientific_name = None
+                    speciesnet_score = None
+
+                    if speciesnet_classifier is not None:
+                        try:
+                            result = speciesnet_classifier.classify_crop(crop)
+                            if isinstance(result, dict) and not result.get("error"):
+                                candidate = str(result.get("label") or "").strip()
+                                candidate_score = float(result.get("score", 0.0))
+                                candidate_scientific = result.get("scientific_name")
+                                # SpeciesNet cannot independently authorize tiger Re-ID.
+                                if (
+                                    candidate
+                                    and candidate.lower() not in {"tiger", "panthera tigris"}
+                                    and not result.get("is_blank", False)
+                                    and candidate_score >= speciesnet_threshold
+                                ):
+                                    speciesnet_label = candidate
+                                    scientific_name = (
+                                        str(candidate_scientific).strip()
+                                        if candidate_scientific else None
+                                    )
+                                    speciesnet_score = candidate_score
+                                    display_label = (
+                                        f"{candidate} ({scientific_name})"
+                                        if scientific_name else candidate
+                                    )
+                        except Exception:
+                            # Keep the existing classification if SpeciesNet fails.
+                            pass
+
                     box_color = "#f39c12"  # amber
                     summary_lines.append(
                         f"  {idx}. [NON-TIGER ANIMAL] {display_label}\n"
                         f"     Detector score : {det_score:.2f} (ranking score, not probability)\n"
-                        f"     Classifier     : {species_label} (score: {cls_score:.2f})\n"
-                        f"     Re-ID Action   : Bypassed (tiger re-identification not applicable)."
+                        f"     Existing classifier: {species_label} (score: {cls_score:.2f})\n"
+                        f"     SpeciesNet      : {speciesnet_label or 'No accepted label'}"
+                        + (f" (score: {speciesnet_score:.3f})" if speciesnet_score is not None else "")
+                        + "\n     Re-ID Action   : Bypassed (not verified as tiger)."
                     )
                     processed_detections.append({
                         'index': idx,
@@ -350,9 +410,12 @@ def process_frame(
                         'score': det_score,
                         'label': display_label,
                         'species_score': cls_score,
+                        'speciesnet_label': speciesnet_label,
+                        'scientific_name': scientific_name,
+                        'speciesnet_score': speciesnet_score,
                         'category': 'animal',
                         'is_tiger': False,
-                        'reid_result': "Bypassed (non-tiger animal)"
+                        'reid_result': "Bypassed (not verified as tiger)"
                     })
 
             else:

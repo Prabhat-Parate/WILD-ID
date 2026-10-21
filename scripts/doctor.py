@@ -15,6 +15,75 @@ import socket
 import hashlib
 import argparse
 from pathlib import Path
+import json
+import numpy as np
+from scripts.doctor import check_reference_database_integrity
+
+def _write_reference_fixture(tmp_path, embeddings, keys, metadata_paths=None):
+    """Create an isolated temporary NPZ/JSON reference database."""
+    npz_path = tmp_path / "reference_features.npz"
+    json_path = tmp_path / "reference_features.json"
+
+    np.savez_compressed(
+        npz_path,
+        embeddings=np.asarray(embeddings, dtype=np.float32),
+        keys=np.asarray(keys, dtype=str),
+    )
+
+    paths = list(keys) if metadata_paths is None else metadata_paths
+    metadata = {
+        "format_version": 1,
+        "count": len(paths),
+        "updated_at": "test",
+        "entries": [
+            {
+                "index": index,
+                "image_path": path,
+                "tiger_name": "tiger_test",
+            }
+            for index, path in enumerate(paths)
+        ],
+    }
+    json_path.write_text(json.dumps(metadata), encoding="utf-8")
+    return npz_path, json_path
+
+
+def test_reference_integrity_rejects_mismatched_keys(tmp_path):
+    """NPZ keys must exactly match metadata image paths."""
+    npz_path, json_path = _write_reference_fixture(
+        tmp_path,
+        embeddings=np.zeros((2, 128), dtype=np.float32),
+        keys=["image_a.jpg", "image_b.jpg"],
+        metadata_paths=["image_a.jpg", "different_image.jpg"],
+    )
+
+    assert check_reference_database_integrity(npz_path, json_path) is False
+
+
+def test_reference_integrity_rejects_wrong_embedding_dimensions(tmp_path):
+    """Reference embeddings must have 128 dimensions."""
+    npz_path, json_path = _write_reference_fixture(
+        tmp_path,
+        embeddings=np.zeros((1, 64), dtype=np.float32),
+        keys=["image_a.jpg"],
+    )
+
+    assert check_reference_database_integrity(npz_path, json_path) is False
+
+
+@pytest.mark.parametrize("bad_value", [float("nan"), float("inf"), float("-inf")])
+def test_reference_integrity_rejects_nonfinite_embeddings(tmp_path, bad_value):
+    """Embeddings must not contain NaN or infinite values."""
+    embeddings = np.zeros((1, 128), dtype=np.float32)
+    embeddings[0, 0] = bad_value
+
+    npz_path, json_path = _write_reference_fixture(
+        tmp_path,
+        embeddings=embeddings,
+        keys=["image_a.jpg"],
+    )
+
+    assert check_reference_database_integrity(npz_path, json_path) is False
 
 # Ensure root directory is on path
 ROOT_DIR = Path(__file__).resolve().parent.parent
@@ -156,41 +225,128 @@ def check_utf8_environment() -> bool:
         return False
 
 
+
+def check_reference_database_integrity(npz_path: Path, json_path: Path) -> bool:
+    """Validate structure and consistency of the mutable reference database."""
+    try:
+        if not npz_path.is_file() or not json_path.is_file():
+            print("  [FAIL] Reference database NPZ/JSON pair is missing.")
+            return False
+
+        with json_path.open("r", encoding="utf-8") as handle:
+            metadata = json.load(handle)
+
+        if not isinstance(metadata, dict) or not isinstance(metadata.get("entries"), list):
+            print("  [FAIL] Reference metadata has an invalid structure.")
+            return False
+
+        entries = metadata["entries"]
+        if metadata.get("format_version") != 1 or metadata.get("count") != len(entries):
+            print("  [FAIL] Reference metadata count/version is inconsistent.")
+            return False
+
+        image_paths = []
+        for index, entry in enumerate(entries):
+            if not isinstance(entry, dict):
+                print(f"  [FAIL] Invalid metadata entry at index {index}.")
+                return False
+            if entry.get("index") != index:
+                print(f"  [FAIL] Non-sequential metadata index at {index}.")
+                return False
+
+            image_path = entry.get("image_path")
+            tiger_name = entry.get("tiger_name")
+            if not isinstance(image_path, str) or not image_path.strip():
+                print(f"  [FAIL] Invalid image path at metadata index {index}.")
+                return False
+            if not isinstance(tiger_name, str) or not tiger_name.strip():
+                print(f"  [FAIL] Invalid tiger name at metadata index {index}.")
+                return False
+
+            image_paths.append(image_path)
+
+        if len(set(image_paths)) != len(image_paths):
+            print("  [FAIL] Duplicate image paths in reference metadata.")
+            return False
+
+        with np.load(npz_path, allow_pickle=False) as data:
+            if "embeddings" not in data.files or "keys" not in data.files:
+                print("  [FAIL] Reference NPZ is missing required arrays.")
+                return False
+
+            embeddings = data["embeddings"]
+            keys = data["keys"]
+
+        if embeddings.ndim != 2 or embeddings.shape != (len(entries), 128):
+            print("  [FAIL] Reference embeddings have an invalid shape.")
+            return False
+        if not np.issubdtype(embeddings.dtype, np.number):
+            print("  [FAIL] Reference embeddings are not numeric.")
+            return False
+        if not np.isfinite(embeddings).all():
+            print("  [FAIL] Reference embeddings contain NaN or infinity.")
+            return False
+        if keys.ndim != 1 or len(keys) != len(entries):
+            print("  [FAIL] Reference NPZ key count is inconsistent.")
+            return False
+
+        npz_keys = [str(key) for key in keys.tolist()]
+        if npz_keys != image_paths:
+            print("  [FAIL] NPZ keys do not match metadata image paths.")
+            return False
+
+        print(
+            f"  [OK] Reference database structure is consistent "
+            f"({len(entries)} embeddings; dynamic database, not fixed-hash verified)."
+        )
+        return True
+
+    except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
+        print(f"  [FAIL] Reference database validation failed: {type(exc).__name__}.")
+        return False
+
+
 def check_weights_and_data_integrity() -> bool:
-    """Verify presence and SHA-256 hashes of weights and data artifacts."""
-    print("\n[CHECK 4/6] Weights and Data Integrity (SHA-256)")
+    """Verify fixed artifact hashes and validate the mutable reference database."""
+    print("\n[CHECK 4/6] Weights and Data Integrity")
     print("-" * 50)
 
-    files_to_check = [
-        ("models/tiger_finetuned_vit.pth", True),
-        ("models/reference_features.npz", True),
-        ("models/reference_features.json", True),
-        ("data/tadoba-species.json", True),
+    # These are fixed artifacts and must match their reviewed SHA-256 baselines.
+    fixed_files = [
+        "models/tiger_finetuned_vit.pth",
+        "data/tadoba-species.json",
     ]
 
     all_ok = True
-    for rel_path, required in files_to_check:
+    for rel_path in fixed_files:
         full_path = ROOT_DIR / rel_path
-        if not full_path.exists():
-            status = "[FAIL]" if required else "[WARN]"
-            print(f"  {status} File missing: {rel_path}")
-            if required:
-                all_ok = False
+        if not full_path.is_file():
+            print(f"  [FAIL] Required file missing: {rel_path}")
+            all_ok = False
+            continue
+
+        expected = EXPECTED_HASHES.get(rel_path)
+        if not expected:
+            print(f"  [FAIL] No trusted SHA-256 baseline configured for {rel_path}.")
+            all_ok = False
             continue
 
         size_mb = full_path.stat().st_size / (1024 * 1024)
         computed_hash = compute_sha256(full_path)
-        expected = EXPECTED_HASHES.get(rel_path)
-
-        if expected is None:
-            print(f"  [WARN] {rel_path:32s} : {size_mb:8.2f} MB | SHA-256: {computed_hash[:16]}... (unverified)")
-        elif computed_hash.lower() == expected.lower():
-            print(f"  [OK]   {rel_path:32s} : {size_mb:8.2f} MB | SHA-256 match ({computed_hash[:16]}...)")
+        if computed_hash.lower() == expected.lower():
+            print(f"  [OK] {rel_path}: {size_mb:.2f} MB; SHA-256 verified.")
         else:
-            print(f"  [FAIL] {rel_path:32s} : SHA-256 MISMATCH!")
-            print(f"         Expected: {expected}")
-            print(f"         Computed: {computed_hash}")
+            print(f"  [FAIL] SHA-256 mismatch: {rel_path}")
             all_ok = False
+
+    # These files change as reference animals are approved or rebuilt.
+    all_ok = (
+        check_reference_database_integrity(
+            ROOT_DIR / "models/reference_features.npz",
+            ROOT_DIR / "models/reference_features.json",
+        )
+        and all_ok
+    )
 
     return all_ok
 

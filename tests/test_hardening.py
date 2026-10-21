@@ -18,7 +18,15 @@ from PIL import Image
 
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
+from scripts.doctor import (
+    compute_sha256,
+    check_working_directory,
+    check_package_versions,
+    check_utf8_environment,
+    check_weights_and_data_integrity,
+    check_reference_database_integrity,
+    check_port_free
+)
 from src.config import (
     DEFAULT_HOST,
     DEFAULT_PORT,
@@ -187,3 +195,59 @@ def test_doctor_package_versions_check():
 def test_doctor_weights_integrity():
     """Verify hash check passes for tracked weights and data files."""
     assert check_weights_and_data_integrity() is True
+
+import json
+import numpy as np
+
+def _write_reference_fixture(tmp_path, embeddings, keys, metadata_paths=None):
+    """Create a temporary reference database for integrity tests."""
+    npz_path = tmp_path / "reference_features.npz"
+    json_path = tmp_path / "reference_features.json"
+
+    np.savez_compressed(
+        npz_path,
+        embeddings=np.asarray(embeddings, dtype=np.float32),
+        keys=np.asarray(keys, dtype=str),
+    )
+
+    paths = list(keys) if metadata_paths is None else metadata_paths
+    metadata = {
+        "format_version": 1,
+        "count": len(paths),
+        "updated_at": "test",
+        "entries": [
+            {"index": i, "image_path": path, "tiger_name": "tiger_test"}
+            for i, path in enumerate(paths)
+        ],
+    }
+    json_path.write_text(json.dumps(metadata), encoding="utf-8")
+    return npz_path, json_path
+
+
+def test_reference_integrity_rejects_mismatched_keys(tmp_path):
+    npz_path, json_path = _write_reference_fixture(
+        tmp_path,
+        np.zeros((2, 128)),
+        ["image_a.jpg", "image_b.jpg"],
+        ["image_a.jpg", "different_image.jpg"],
+    )
+    assert check_reference_database_integrity(npz_path, json_path) is False
+
+
+def test_reference_integrity_rejects_wrong_embedding_dimensions(tmp_path):
+    npz_path, json_path = _write_reference_fixture(
+        tmp_path,
+        np.zeros((1, 64)),
+        ["image_a.jpg"],
+    )
+    assert check_reference_database_integrity(npz_path, json_path) is False
+
+
+@pytest.mark.parametrize("bad_value", [float("nan"), float("inf"), float("-inf")])
+def test_reference_integrity_rejects_nonfinite_embeddings(tmp_path, bad_value):
+    embeddings = np.zeros((1, 128), dtype=np.float32)
+    embeddings[0, 0] = bad_value
+    npz_path, json_path = _write_reference_fixture(
+        tmp_path, embeddings, ["image_a.jpg"]
+    )
+    assert check_reference_database_integrity(npz_path, json_path) is False

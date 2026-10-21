@@ -1,0 +1,240 @@
+{
+ "predictions": [
+  {
+   "filepath": "data/test/NewTiger_not_in_database.png",
+   "country": "IND",
+   "classifications": {
+    "classes": [
+     "e1c6c5b2-b808-4d50-bf01-90aa46f964c2;mammalia;carnivora;felidae;panthera;tigris;tiger",
+     "dd39bbd5-077c-482e-9d33-bd176116c870;mammalia;perissodactyla;equidae;equus;quagga;plains zebra",
+     "ba76d46e-25de-45e2-90a8-bd279b650f7c;mammalia;carnivora;felidae;lynx;rufus;bobcat",
+     "b1352069-a39c-4a84-a949-60044271c0c1;aves;;;;;bird",
+     "9212982e-8a58-4775-a6ac-e9a43110d8f5;mammalia;carnivora;felidae;felis;catus;domestic cat"
+    ],
+    "scores": [
+     0.9988,
+     0.0002,
+     0.0002,
+     0.0001,
+     0.0001
+    ]
+   },
+   "detections": [
+    {
+     "category": "1",
+     "label": "animal",
+     "conf": 0.7967,
+     "bbox": [
+      0.0028,
+      0.0241,
+      0.9972,
+      0.9727
+     ]
+    },
+    {
+     "category": "1",
+     "label": "animal",
+     "conf": 0.0148,
+     "bbox": [
+      0.0,
+      0.0535,
+      0.1696,
+      0.9412
+     ]
+    }
+   ],
+   "prediction": "e1c6c5b2-b808-4d50-bf01-90aa46f964c2;mammalia;carnivora;felidae;panthera;tigris;tiger",
+   "prediction_score": 0.9988,
+   "prediction_source": "classifier",
+   "model_version": "4.0.3a"
+  },
+  {
+   "filepath": "data/test/tiger_007_012.jpg",
+   "country": "IND",
+   "classifications": {
+    "classes": [
+     "e1c6c5b2-b808-4d50-bf01-90aa46f964c2;mammalia;carnivora;felidae;panthera;tigris;tiger",
+     "96debe9f-7452-42c9-87ae-2e6b37f78025;mammalia;carnivora;felidae;felis;silvestris;wild cat",
+     "d72cc2b1-90a7-4585-98d7-772312176e5c;mammalia;carnivora;felidae;leopardus;colocolo;pampas cat",
+     "bb2c0674-6b2b-430f-8762-df186ec71098;mammalia;carnivora;felidae;felis;;felis species",
+     "44e7f637-f8db-4252-9804-7c200fd6516c;mammalia;carnivora;felidae;neofelis;nebulosa;clouded leopard"
+    ],
+    "scores": [
+     0.9994,
+     0.0003,
+     0.0,
+     0.0,
+     0.0
+    ]
+   },
+   "detections": [
+    {
+     "category": "1",
+     "label": "animal",
+     "conf": 0.9445,
+     "bbox": [
+      0.0011,
+      0.1205,
+      0.9843,
+      0.7545
+     ]
+    }
+   ],
+   "prediction": "e1c6c5b2-b808-4d50-bf01-90aa46f964c2;mammalia;carnivora;felidae;panthera;tigris;tiger",
+   "prediction_score": 0.9994,
+   "prediction_source": "classifier",
+   "model_version": "4.0.3a"
+  },
+  {
+   "filepath": "data/test/tiger_012_009.jpg",
+   "country": "IND",
+   "classifications": {
+    "classes": [
+     "e1c6c5b2-b808-4d50-bf01-90aa46f964c2;mammalia;carnivora;felidae;panthera;tigris;tiger",
+     "96debe9f-7452-42c9-87ae-2e6b37f78025;mammalia;carnivora;felidae;felis;silvestris;wild cat",
+     "9212982e-8a58-4775-a6ac-e9a43110d8f5;mammalia;carnivora;felidae;felis;catus;domestic cat",
+     "d72cc2b1-90a7-4585-98d7-772312176e5c;mammalia;carnivora;felidae;leopardus;colocolo;pampas cat",
+     "1c73c77e-03b0-4e13-b57c-d4854e8266a3;mammalia;carnivora;felidae;leopardus;guttulus;southern tiger cat"
+    ],
+    "scores": [
+     0.9962,
+     0.001,
+     0.0006,
+     0.0005,
+     0.0001
+    ]
+   },
+   "detections": [
+    {
+     "category": "1",
+     "label": "animal",
+     "conf": 0.5925,
+     "bbox": [
+      0.0318,
+      0.0859,
+      0.8662,
+      0.8037
+     ]
+    },
+    {
+     "category": "1",
+     "label": "animal",
+     "conf": 0.0943,
+     "bbox": [
+      0.8726,
+      0.4847,
+      0.1274,
+      0.1472
+     ]
+    },
+    {
+     "category": "1",
+     "label": "animal",
+     "conf": 0.0435,
+     "bbox": [
+      0.8153,
+      0.7178,
+      0.1338,
+      0.1656
+     ]
+    },
+    {
+     "category": "1",
+     "label": "animal",
+     "conf": 0.0182,
+     "bbox": [
+      0.6178,
+      0.6196,
+      0.3312,
+      0.2822
+     ]
+    },
+    {
+     "category": "1",
+     "label": "animal",
+     "conf": 0.0151,
+     "bbox": [
+      0.0127,
+      0.2638,
+      0.2038,
+      0.2331
+     ]
+    }
+   ],
+   "prediction": "e1c6c5b2-b808-4d50-bf01-90aa46f964c2;mammalia;carnivora;felidae;panthera;tigris;tiger",
+   "prediction_score": 0.9962,
+   "prediction_source": "classifier",
+   "model_version": "4.0.3a"
+  },
+  {
+   "filepath": "data/test/tiger_025_032.jpg",
+   "country": "IND",
+   "classifications": {
+    "classes": [
+     "e1c6c5b2-b808-4d50-bf01-90aa46f964c2;mammalia;carnivora;felidae;panthera;tigris;tiger",
+     "96debe9f-7452-42c9-87ae-2e6b37f78025;mammalia;carnivora;felidae;felis;silvestris;wild cat",
+     "3c5ca701-7ce1-481b-acf4-c1ae4f78a781;mammalia;carnivora;viverridae;viverra;zibetha;large indian civet",
+     "44e7f637-f8db-4252-9804-7c200fd6516c;mammalia;carnivora;felidae;neofelis;nebulosa;clouded leopard",
+     "bb2c0674-6b2b-430f-8762-df186ec71098;mammalia;carnivora;felidae;felis;;felis species"
+    ],
+    "scores": [
+     0.9999,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ]
+   },
+   "detections": [
+    {
+     "category": "1",
+     "label": "animal",
+     "conf": 0.9218,
+     "bbox": [
+      0.0048,
+      0.0695,
+      0.994,
+      0.8463
+     ]
+    },
+    {
+     "category": "1",
+     "label": "animal",
+     "conf": 0.1968,
+     "bbox": [
+      0.8723,
+      0.0021,
+      0.1277,
+      0.4147
+     ]
+    },
+    {
+     "category": "1",
+     "label": "animal",
+     "conf": 0.0109,
+     "bbox": [
+      0.8723,
+      0.0168,
+      0.1277,
+      0.8905
+     ]
+    },
+    {
+     "category": "1",
+     "label": "animal",
+     "conf": 0.0107,
+     "bbox": [
+      0.3544,
+      0.0063,
+      0.6456,
+      0.4589
+     ]
+    }
+   ],
+   "prediction": "e1c6c5b2-b808-4d50-bf01-90aa46f964c2;mammalia;carnivora;felidae;panthera;tigris;tiger",
+   "prediction_score": 0.9999,
+   "prediction_source": "classifier",
+   "model_version": "4.0.3a"
+  }
+ ]
+}

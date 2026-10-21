@@ -1,0 +1,2098 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   WILD-ID  —  Design System
+   Dark charcoal, layered surfaces, forest-green accent, warm off-white text.
+   No neon, purple, glassmorphism, pill buttons/badges, or emoji.
+   All text colors verified WCAG 2.1 AA (≥ 4.5:1) against their backgrounds.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Design Tokens ─────────────────────────────────────────────────────── */
+:root {
+  /* Palette — surfaces & borders */
+  --wid-bg:            #141414;   /* near-black charcoal              */
+  --wid-surface:       #1c1c1c;   /* surfaces one step lighter        */
+  --wid-surface-alt:   #222222;   /* alternate surface (inputs)       */
+  --wid-border:        #2e2e2e;   /* default 1px borders              */
+  --wid-border-focus:  #5a9069;   /* focus ring                       */
+
+  /* Text — all pass ≥ 4.5:1 AA on every surface they appear on */
+  --wid-text:          #e0ddd5;   /* warm off-white primary           */
+  --wid-text-dim:      #928f7e;   /* muted olive secondary (≥4.89:1)  */
+  --wid-text-muted:    #908b7a;   /* placeholders / quiet (≥4.67:1)   */
+
+  /* Green accent — split into button-bg and text roles */
+  --wid-green:         #3d6b4b;   /* button bg (4.55:1 with --wid-text) */
+  --wid-green-hover:   #4a7c59;   /* button bg hover                    */
+  --wid-green-text:    #5a9069;   /* green text on dark surfaces (≥4.57:1) */
+  --wid-green-subtle:  #202d23;   /* green bg tint for active tab/sidebar */
+
+  /* Warning — amber for warnings & review only */
+  --wid-amber:         #c9943e;   /* amber text (6.83:1 on bg)        */
+  --wid-amber-subtle:  #332b1a;   /* amber bg tint                    */
+
+  /* Destructive */
+  --wid-red:           #c46b6b;   /* destructive text (4.97:1 on bg)  */
+  --wid-red-hover:     #d47c7c;   /* destructive hover                */
+
+  /* Typography — system font stacks only, no external requests */
+  --wid-font-sans:   -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --wid-font-mono:   "Cascadia Code", "Cascadia Mono", Consolas, "Courier New", monospace;
+
+  /* Type scale */
+  --wid-text-xs:     0.6875rem;   /* 11px – micro labels             */
+  --wid-text-sm:     0.75rem;     /* 12px – body small               */
+  --wid-text-base:   0.8125rem;   /* 13px – body                     */
+  --wid-text-md:     0.875rem;    /* 14px – intermediate             */
+  --wid-text-lg:     1rem;        /* 16px – section headings         */
+  --wid-text-xl:     1.25rem;     /* 20px – page titles              */
+  --wid-text-2xl:    1.5rem;      /* 24px – large titles             */
+
+  /* Spacing scale: 4, 8, 16, 24, 32 px */
+  --wid-sp-4:  4px;
+  --wid-sp-8:  8px;
+  --wid-sp-16: 16px;
+  --wid-sp-24: 24px;
+  --wid-sp-32: 32px;
+
+  /* Aliases for compatibility */
+  --wid-sp-1:  var(--wid-sp-4);
+  --wid-sp-2:  var(--wid-sp-8);
+  --wid-sp-3:  var(--wid-sp-16);
+  --wid-sp-4-alias: var(--wid-sp-24);
+  --wid-sp-5:  var(--wid-sp-32);
+
+  /* Shape: 2 to 6 px radii */
+  --wid-radius-sm: 2px;
+  --wid-radius:    4px;
+  --wid-radius-md: 4px;
+  --wid-radius-lg: 6px;
+
+  /* Dimensions */
+  --wid-sidebar-width: 232px;
+  --wid-sidebar-collapsed-width: 60px;
+  --wid-mobile-header-height: 52px;
+
+  /* Motion durations: 280 to 320 ms page transition, 280 ms slider, 150 ms fast */
+  --wid-duration-fast:   150ms;
+  --wid-duration-page:   300ms;   /* 280–320 ms requirement */
+  --wid-duration-slider: 280ms;
+  --wid-duration-reveal: 220ms;
+  --wid-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --wid-transition: 150ms ease;
+}
+
+/* ── Reduced-motion support ────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .wid-tab-slider,
+  .wid-nav-indicator {
+    transition: opacity 150ms ease !important;
+    transform: none !important;
+  }
+
+  .wid-wordmark-char {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+
+  .wid-page-entering,
+  .tabitem.wid-tab-entering,
+  [role="tabpanel"].wid-tab-entering {
+    animation: widTabFadeInReduced 150ms ease forwards !important;
+    transform: none !important;
+  }
+
+  @keyframes widTabFadeInReduced {
+    from {
+      opacity: 0;
+      transform: none;
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  .wid-heading-animate {
+    animation: widTabFadeInReduced 150ms ease forwards !important;
+    animation-delay: 0s !important;
+  }
+
+  .wid-results-table tbody tr {
+    animation: widRowStaggerReduced 150ms ease backwards;
+    animation-delay: 0s;
+  }
+
+  @keyframes widRowStaggerReduced {
+    from {
+      opacity: 0;
+      transform: none;
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  .wid-sim-bar-fill {
+    animation: none !important;
+    transform: none !important;
+  }
+
+  .wid-gallery .gallery-item:hover,
+  #wid-query-image .image-container:hover,
+  #wid-annotated-image .image-container:hover {
+    transform: none !important;
+  }
+
+  .wid-confirmed-feedback textarea,
+  .wid-confirmed-feedback input {
+    animation: widFeedbackPulseReduced 150ms ease forwards !important;
+  }
+
+  @keyframes widFeedbackPulseReduced {
+    from {
+      opacity: 0.7;
+      transform: none;
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  .wid-error-feedback textarea,
+  .wid-error-feedback input,
+  .wid-confirm-needed {
+    animation: widErrorPulseReduced 150ms ease forwards !important;
+  }
+
+  @keyframes widErrorPulseReduced {
+    from {
+      opacity: 0.7;
+      transform: none;
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+}
+
+body.wid-reduced-motion .wid-tab-slider,
+body.wid-reduced-motion .wid-nav-indicator {
+  transition: opacity 150ms ease !important;
+  transform: none !important;
+}
+
+body.wid-reduced-motion .wid-wordmark-char {
+  animation: none !important;
+  opacity: 1 !important;
+  transform: none !important;
+}
+
+body.wid-reduced-motion .wid-page-entering,
+body.wid-reduced-motion .tabitem.wid-tab-entering,
+body.wid-reduced-motion [role="tabpanel"].wid-tab-entering {
+  animation: widTabFadeInReduced 150ms ease forwards !important;
+  transform: none !important;
+}
+
+body.wid-reduced-motion .wid-heading-animate {
+  animation: widTabFadeInReduced 150ms ease forwards !important;
+  animation-delay: 0s !important;
+}
+
+body.wid-reduced-motion .wid-results-table tbody tr {
+  animation: widRowStaggerReduced 150ms ease backwards !important;
+  animation-delay: 0s !important;
+}
+
+body.wid-reduced-motion .wid-sim-bar-fill {
+  animation: none !important;
+  transform: none !important;
+}
+
+body.wid-reduced-motion .wid-gallery .gallery-item:hover,
+body.wid-reduced-motion #wid-query-image .image-container:hover,
+body.wid-reduced-motion #wid-annotated-image .image-container:hover {
+  transform: none !important;
+}
+
+body.wid-reduced-motion .wid-confirmed-feedback textarea,
+body.wid-reduced-motion .wid-confirmed-feedback input {
+  animation: widFeedbackPulseReduced 150ms ease forwards !important;
+}
+
+body.wid-reduced-motion .wid-error-feedback textarea,
+body.wid-reduced-motion .wid-error-feedback input,
+body.wid-reduced-motion .wid-confirm-needed {
+  animation: widErrorPulseReduced 150ms ease forwards !important;
+}
+
+/* ── Webcam Active Safeguard ───────────────────────────────────────────── */
+/* Disable all decorative animation while a live camera stream is active.  */
+body[data-webcam-active="true"] *,
+body[data-webcam-active="true"] *::before,
+body[data-webcam-active="true"] *::after {
+  animation: none;
+  transition: none;
+}
+
+/* ── Confirmation Feedback (Success — Green) ───────────────────────────── */
+.wid-confirmed-feedback textarea,
+.wid-confirmed-feedback input {
+  border-color: var(--wid-green-text);
+  box-shadow: 0 0 0 1px var(--wid-green-text);
+  animation: widFeedbackPulse 240ms ease forwards;
+}
+
+@keyframes widFeedbackPulse {
+  0% {
+    opacity: 0.7;
+    transform: translateY(2px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ── Error & Warning Feedback (Failure / Aborted — Amber) ──────────────── */
+.wid-error-feedback textarea,
+.wid-error-feedback input {
+  border-color: var(--wid-amber);
+  box-shadow: 0 0 0 1px var(--wid-amber);
+  animation: widErrorPulse 240ms ease forwards;
+}
+
+@keyframes widErrorPulse {
+  0% {
+    opacity: 0.7;
+    transform: translateY(2px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Delete confirmation checkbox attention */
+.wid-confirm-needed {
+  outline: 2px solid var(--wid-amber);
+  outline-offset: 2px;
+  animation: widErrorPulse 240ms ease forwards;
+}
+
+/* ── Reset & Globals ───────────────────────────────────────────────────── */
+
+body,
+.gradio-container {
+  font-family: var(--wid-font-sans);
+  font-size: var(--wid-text-base);
+  line-height: 1.6;
+  background: var(--wid-bg);
+  color: var(--wid-text);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Prevent horizontal overflow globally and ensure flush full-width layout */
+body,
+.gradio-container,
+.gradio-container > .main {
+  max-width: 100vw;
+  overflow-x: hidden;
+}
+
+.gradio-container {
+  width: 100% !important;
+  max-width: 100% !important;
+  padding: 0 !important;
+  margin: 0 !important;
+}
+
+.gradio-container > .main {
+  width: 100% !important;
+  max-width: 100% !important;
+  padding: 0 !important;
+  margin: 0 !important;
+}
+
+/* Hide Gradio branding */
+footer,
+.built-with,
+.gradio-container > .footer {
+  display: none;
+}
+
+/* ── Header ────────────────────────────────────────────────────────────── */
+
+#wid-header {
+  border-bottom: 1px solid var(--wid-border);
+  padding: var(--wid-sp-3) 0 var(--wid-sp-2) 0;
+  margin-bottom: var(--wid-sp-2);
+}
+
+#wid-header .wid-wordmark {
+  font-family: var(--wid-font-mono);
+  font-size: var(--wid-text-lg);
+  font-weight: 600;
+  letter-spacing: 0.15em;
+  color: var(--wid-text);
+  text-transform: uppercase;
+  margin: 0 0 var(--wid-sp-1) 0;
+  display: inline-block;
+}
+
+/* WILD-ID letter-by-letter reveal (staggered in JS on first page load only) */
+.wid-wordmark-char {
+  display: inline-block;
+  opacity: 0;
+  transform: translateY(6px);
+  animation: widWordmarkLetterReveal 220ms cubic-bezier(0.2, 0, 0.2, 1) forwards;
+  will-change: opacity, transform;
+}
+
+@keyframes widWordmarkLetterReveal {
+  0% {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+#wid-header .wid-subtitle {
+  font-family: var(--wid-font-sans);
+  font-size: var(--wid-text-sm);
+  color: var(--wid-text-dim);
+  letter-spacing: 0.02em;
+  margin: 0 0 var(--wid-sp-2) 0;
+}
+
+#wid-header .wid-status {
+  font-family: var(--wid-font-mono);
+  font-size: var(--wid-text-xs);
+  color: var(--wid-text-muted);
+  letter-spacing: 0.03em;
+}
+
+#wid-header .wid-status .wid-status-loaded {
+  color: var(--wid-green-text);
+}
+
+#wid-header .wid-status .wid-status-unloaded {
+  color: var(--wid-amber);
+}
+
+/* ── Tab Navigation ────────────────────────────────────────────────────── */
+
+.tab-nav {
+  position: relative;
+}
+
+.tab-nav button {
+  position: relative;
+  font-family: var(--wid-font-mono);
+  font-size: var(--wid-text-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--wid-text-muted);
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  padding: var(--wid-sp-2) var(--wid-sp-3);
+  transition: color 150ms ease;
+  cursor: pointer;
+  border-radius: 0;
+}
+
+/* Micro-underline on hover */
+.tab-nav button::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  width: 0;
+  height: 1px;
+  background: var(--wid-green-text);
+  transition: width 150ms ease, left 150ms ease, opacity 150ms ease;
+  pointer-events: none;
+  opacity: 0;
+}
+
+.tab-nav button:hover {
+  color: var(--wid-text);
+}
+
+.tab-nav button:hover::after {
+  width: 60%;
+  left: 20%;
+  opacity: 0.7;
+}
+
+.tab-nav button.selected {
+  color: var(--wid-text);
+  border-bottom-color: transparent;
+}
+
+.tab-nav button.selected::after {
+  display: none;
+}
+
+/* Keyboard focus — visible ring */
+.tab-nav button:focus-visible {
+  outline: 2px solid var(--wid-green-text);
+  outline-offset: -2px;
+  color: var(--wid-text);
+}
+
+/* Sliding active underline indicator (not a pill; 280ms ease) */
+.wid-tab-slider {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: 2px;
+  background: var(--wid-green-text);
+  pointer-events: none;
+  opacity: 0;
+  transform: translateX(0);
+  transition: transform 280ms cubic-bezier(0.2, 0, 0.2, 1), width 280ms cubic-bezier(0.2, 0, 0.2, 1), opacity 150ms ease;
+  z-index: 5;
+  border-radius: 0;
+}
+
+/* ── Tab Panel Entry Animation (300ms, fade + 14px upward slide) ──────── */
+@keyframes widTabPanelEnter {
+  0% {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.tabitem.wid-tab-entering,
+[role="tabpanel"].wid-tab-entering {
+  animation: widTabPanelEnter 300ms cubic-bezier(0.2, 0, 0.2, 1) forwards !important;
+  will-change: opacity, transform;
+}
+
+/* ── Section Headings Fade-Up on Tab Activation ───────────────────────── */
+@keyframes widHeadingFadeUp {
+  0% {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.wid-heading-animate {
+  animation: widHeadingFadeUp 260ms cubic-bezier(0.2, 0, 0.2, 1) forwards !important;
+  will-change: opacity, transform;
+}
+
+.wid-stagger-1 { animation-delay: 35ms !important; }
+.wid-stagger-2 { animation-delay: 75ms !important; }
+.wid-stagger-3 { animation-delay: 115ms !important; }
+.wid-stagger-4 { animation-delay: 155ms !important; }
+
+/* Strict Honesty Safeguard: Honesty notes NEVER animate, fade, collapse, or delay */
+.wid-note,
+.wid-note *,
+.wid-threshold-note,
+.wid-threshold-note *,
+.wid-summary-detail,
+.wid-summary-detail * {
+  animation: none !important;
+  opacity: 1 !important;
+  transform: none !important;
+  transition: none !important;
+}
+
+/* ── Section Labels ────────────────────────────────────────────────────── */
+
+.wid-section-label {
+  font-family: var(--wid-font-mono);
+  font-size: var(--wid-text-xs);
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--wid-text-dim);
+  margin: var(--wid-sp-3) 0 var(--wid-sp-2) 0;
+  padding: 0;
+}
+
+/* Gradio h4 overrides */
+h4, .prose h4 {
+  font-family: var(--wid-font-mono);
+  font-size: var(--wid-text-sm);
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--wid-text-dim);
+  margin: var(--wid-sp-3) 0 var(--wid-sp-2) 0;
+  border: none;
+}
+
+/* ── Buttons ───────────────────────────────────────────────────────────── */
+
+/* Primary — forest green, rectangle, no pill shape */
+button.primary,
+.wid-btn-primary {
+  font-family: var(--wid-font-mono);
+  font-size: var(--wid-text-xs);
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  background: var(--wid-green);
+  color: var(--wid-text);
+  border: 1px solid var(--wid-green);
+  border-radius: var(--wid-radius);
+  padding: var(--wid-sp-2) var(--wid-sp-3);
+  transition: background var(--wid-transition), border-color var(--wid-transition);
+  cursor: pointer;
+}
+
+button.primary:hover,
+.wid-btn-primary:hover {
+  background: var(--wid-green-hover);
+  border-color: var(--wid-green-hover);
+}
+
+button.primary:focus-visible {
+  outline: 2px solid var(--wid-text);
+  outline-offset: 2px;
+}
+
+/* Secondary — ghost, rectangle */
+button.secondary,
+.wid-btn-secondary {
+  font-family: var(--wid-font-mono);
+  font-size: var(--wid-text-xs);
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  background: transparent;
+  color: var(--wid-text-dim);
+  border: 1px solid var(--wid-border);
+  border-radius: var(--wid-radius);
+  padding: var(--wid-sp-2) var(--wid-sp-3);
+  transition: color var(--wid-transition), border-color var(--wid-transition);
+  cursor: pointer;
+}
+
+button.secondary:hover {
+  color: var(--wid-text);
+  border-color: var(--wid-text-dim);
+}
+
+button.secondary:focus-visible {
+  outline: 2px solid var(--wid-green-text);
+  outline-offset: 2px;
+}
+
+/* Destructive */
+#wid-delete-btn button {
+  color: var(--wid-red);
+  border-color: var(--wid-border);
+}
+
+#wid-delete-btn button:hover {
+  color: var(--wid-red-hover);
+  border-color: var(--wid-red);
+}
+
+/* ── Inputs ────────────────────────────────────────────────────────────── */
+
+textarea,
+input[type="text"],
+.gr-textbox textarea,
+.gr-textbox input {
+  font-family: var(--wid-font-mono);
+  font-size: var(--wid-text-sm);
+  line-height: 1.7;
+  background: var(--wid-surface-alt);
+  color: var(--wid-text);
+  border: 1px solid var(--wid-border);
+  border-radius: var(--wid-radius);
+  transition: border-color var(--wid-transition);
+}
+
+textarea:focus,
+input[type="text"]:focus {
+  border-color: var(--wid-border-focus);
+  outline: none;
+}
+
+/* Visible focus for all interactive elements */
+textarea:focus-visible,
+input:focus-visible,
+select:focus-visible {
+  outline: 2px solid var(--wid-green-text);
+  outline-offset: 1px;
+}
+
+/* Labels inside Gradio components */
+label span,
+.gr-input-label,
+.label-wrap span {
+  font-family: var(--wid-font-mono);
+  font-size: var(--wid-text-xs);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--wid-text-dim);
+}
+
+/* ── Dividers ──────────────────────────────────────────────────────────── */
+
+.wid-divider {
+  border: none;
+  border-top: 1px solid var(--wid-border);
+  margin: var(--wid-sp-3) 0;
+}
+
+/* ── Disclaimer / Notes ────────────────────────────────────────────────── */
+
+.wid-note {
+  font-family: var(--wid-font-sans);
+  font-size: var(--wid-text-sm);
+  background: var(--wid-surface);
+  border-left: 3px solid var(--wid-text-muted);
+  padding: var(--wid-sp-2) var(--wid-sp-3);
+  color: var(--wid-text-dim);
+  margin-bottom: var(--wid-sp-2);
+  border-radius: 0 var(--wid-radius) var(--wid-radius) 0;
+  line-height: 1.65;
+}
+
+.wid-note strong {
+  color: var(--wid-text);
+  font-weight: 500;
+}
+
+.wid-note em {
+  color: var(--wid-text-dim);
+  font-style: italic;
+}
+
+.wid-warning {
+  border-left-color: var(--wid-amber);
+  background: var(--wid-amber-subtle);
+}
+
+.wid-warning strong {
+  color: var(--wid-amber);
+}
+
+/* Threshold note */
+.wid-threshold-note {
+  font-family: var(--wid-font-mono);
+  font-size: var(--wid-text-xs);
+  color: var(--wid-text-muted);
+  letter-spacing: 0.04em;
+  margin: var(--wid-sp-1) 0 var(--wid-sp-2) 0;
+}
+
+/* ── Destructive Zone ──────────────────────────────────────────────────── */
+
+.wid-destructive-zone {
+  border: 1px solid var(--wid-border);
+  border-left: 3px solid var(--wid-red);
+  padding: var(--wid-sp-3);
+  margin-top: var(--wid-sp-4);
+  border-radius: var(--wid-radius);
+  background: var(--wid-surface);
+}
+
+.wid-destructive-label {
+  font-family: var(--wid-font-mono);
+  font-size: var(--wid-text-xs);
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--wid-red);
+  margin: 0 0 var(--wid-sp-2) 0;
+}
+
+/* ── Results Table (HTML) ──────────────────────────────────────────────── */
+
+.wid-results-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--wid-font-mono);
+  font-size: var(--wid-text-sm);
+}
+
+.wid-results-table th {
+  font-size: var(--wid-text-xs);
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--wid-text-dim);
+  text-align: left;
+  padding: var(--wid-sp-2) var(--wid-sp-2);
+  border-bottom: 1px solid var(--wid-border);
+}
+
+.wid-results-table td {
+  padding: var(--wid-sp-1) var(--wid-sp-2);
+  border-bottom: 1px solid var(--wid-surface-alt);
+  color: var(--wid-text);
+  vertical-align: middle;
+  font-variant-numeric: tabular-nums;
+}
+
+.wid-results-table tr:hover td {
+  background: var(--wid-surface);
+}
+
+/* Row stagger capped at 10 */
+.wid-results-table tbody tr {
+  animation: widRowStagger 220ms cubic-bezier(0.2, 0, 0.2, 1) backwards;
+  animation-delay: calc(min(var(--row-index, 0), 10) * 45ms);
+}
+
+@keyframes widRowStagger {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.wid-results-table .wid-outcome-above {
+  color: var(--wid-green-text);
+}
+
+.wid-results-table .wid-outcome-below {
+  color: var(--wid-text-dim);
+}
+
+/* Similarity bar (animates transform and opacity only to real cosine score) */
+.wid-sim-bar-bg {
+  display: inline-block;
+  width: 80px;
+  height: 6px;
+  background: var(--wid-surface-alt);
+  border-radius: 1px;
+  vertical-align: middle;
+  margin-left: var(--wid-sp-1);
+  overflow: hidden;
+}
+
+.wid-sim-bar-fill {
+  display: block;
+  height: 100%;
+  background: var(--wid-green-text);
+  border-radius: 1px;
+  min-width: 1px;
+  transform-origin: left center;
+  animation: widBarGrow 320ms cubic-bezier(0.2, 0, 0.2, 1) backwards;
+  animation-delay: calc(min(var(--row-index, 0), 10) * 45ms + 60ms);
+}
+
+@keyframes widBarGrow {
+  from {
+    opacity: 0.3;
+    transform: scaleX(0);
+  }
+  to {
+    opacity: 1;
+    transform: scaleX(1);
+  }
+}
+
+.wid-sim-bar-fill.above-threshold {
+  background: var(--wid-green-text);
+}
+
+.wid-sim-bar-fill.below-threshold {
+  background: var(--wid-text-muted);
+}
+
+/* ── Summary Line ──────────────────────────────────────────────────────── */
+
+.wid-result-summary {
+  font-family: var(--wid-font-mono);
+  font-size: var(--wid-text-sm);
+  padding: var(--wid-sp-2) var(--wid-sp-3);
+  border: 1px solid var(--wid-border);
+  border-radius: var(--wid-radius);
+  margin-bottom: var(--wid-sp-3);
+  background: var(--wid-surface);
+}
+
+.wid-result-summary.above-threshold {
+  border-left: 3px solid var(--wid-green-text);
+}
+
+.wid-result-summary.below-threshold {
+  border-left: 3px solid var(--wid-text-muted);
+}
+
+.wid-result-summary .wid-summary-outcome {
+  font-weight: 500;
+  margin-bottom: var(--wid-sp-1);
+}
+
+.wid-result-summary .wid-summary-detail {
+  color: var(--wid-text-dim);
+  font-size: var(--wid-text-xs);
+}
+
+/* ── Gallery & Image Motion ────────────────────────────────────────────── */
+
+.wid-gallery .gallery-item {
+  border: 1px solid var(--wid-border);
+  border-radius: var(--wid-radius);
+  overflow: hidden;
+  transition: transform 200ms cubic-bezier(0.2, 0, 0.2, 1);
+  transform-origin: center center;
+}
+
+/* Hover tilt: max 3deg, zoom 1.02 */
+.wid-gallery .gallery-item:hover {
+  transform: scale(1.02) rotate(1deg);
+}
+
+.wid-gallery .caption {
+  font-family: var(--wid-font-mono);
+  font-size: var(--wid-text-xs);
+  color: var(--wid-text-dim);
+  padding: var(--wid-sp-1) var(--wid-sp-2);
+  background: var(--wid-surface);
+}
+
+/* ── Image Upload & Preview Areas ──────────────────────────────────────── */
+
+.wid-query-col .image-container,
+.wid-query-col .upload-container,
+#wid-annotated-image .image-container {
+  border: 1px solid var(--wid-border);
+  border-radius: var(--wid-radius);
+  background: var(--wid-surface);
+  transition: transform 200ms cubic-bezier(0.2, 0, 0.2, 1);
+  transform-origin: center center;
+}
+
+#wid-query-image .image-container:hover,
+#wid-annotated-image .image-container:hover {
+  transform: scale(1.015) rotate(-0.8deg);
+}
+
+/* Inspection Safeguard: Freeze hover zoom/tilt while image is enlarged */
+body[data-inspecting="true"] .wid-gallery .gallery-item:hover,
+body[data-inspecting="true"] #wid-query-image .image-container:hover,
+body[data-inspecting="true"] #wid-annotated-image .image-container:hover,
+.wid-gallery .gallery-item.selected,
+.wid-gallery .gallery-item.selected:hover,
+.wid-gallery:has(.preview) .gallery-item:hover {
+  transform: none;
+}
+
+/* ── Dataframe / Table containers ──────────────────────────────────────── */
+
+.wid-table-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  max-width: 100%;
+}
+
+/* ── Detection report textbox ──────────────────────────────────────────── */
+
+#wid-detection-report textarea {
+  font-family: var(--wid-font-mono);
+  font-size: var(--wid-text-sm);
+  line-height: 1.6;
+  background: var(--wid-surface);
+  border: 1px solid var(--wid-border);
+  color: var(--wid-text);
+}
+
+/* ── Status text ───────────────────────────────────────────────────────── */
+
+#wid-setup-output textarea,
+#wid-delete-output textarea,
+#wid-batch-output textarea {
+  font-family: var(--wid-font-mono);
+  font-size: var(--wid-text-sm);
+  line-height: 1.6;
+  background: var(--wid-surface);
+  color: var(--wid-text);
+  border: 1px solid var(--wid-border);
+}
+
+/* ── Footer ────────────────────────────────────────────────────────────── */
+
+#wid-footer {
+  border-top: 1px solid var(--wid-border);
+  padding: var(--wid-sp-3) 0 var(--wid-sp-2) 0;
+  margin-top: var(--wid-sp-4);
+}
+
+#wid-footer p {
+  font-family: var(--wid-font-mono);
+  font-size: var(--wid-text-xs);
+  color: var(--wid-text-muted);
+  letter-spacing: 0.04em;
+  margin: 0;
+}
+
+#wid-footer a {
+  color: var(--wid-text-dim);
+  text-decoration: none;
+  border-bottom: 1px solid var(--wid-text-muted);
+  transition: color var(--wid-transition);
+}
+
+#wid-footer a:hover {
+  color: var(--wid-text);
+}
+
+/* ── Empty States ──────────────────────────────────────────────────────── */
+
+.wid-empty-state {
+  font-family: var(--wid-font-sans);
+  font-size: var(--wid-text-sm);
+  color: var(--wid-text-dim);
+  text-align: left;
+  padding: var(--wid-sp-4) var(--wid-sp-3);
+  border: 1px dashed var(--wid-border);
+  border-radius: var(--wid-radius);
+  background: var(--wid-surface);
+}
+
+.wid-empty-state strong {
+  color: var(--wid-text);
+  display: block;
+  margin-bottom: var(--wid-sp-1);
+}
+
+/* ── Batch CSV download button ─────────────────────────────────────────── */
+
+#wid-batch-download button {
+  font-family: var(--wid-font-mono);
+  font-size: var(--wid-text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+/* ── Markdown inside panels ────────────────────────────────────────────── */
+
+.prose, .markdown-text {
+  font-family: var(--wid-font-sans);
+  font-size: var(--wid-text-base);
+  color: var(--wid-text);
+  line-height: 1.65;
+}
+
+.prose p {
+  margin: var(--wid-sp-2) 0;
+}
+
+.prose ul, .prose ol {
+  padding-left: var(--wid-sp-3);
+}
+
+.prose li {
+  margin: var(--wid-sp-1) 0;
+}
+
+.prose code {
+  font-family: var(--wid-font-mono);
+  font-size: var(--wid-text-sm);
+  background: var(--wid-surface-alt);
+  padding: 1px 4px;
+  border-radius: 2px;
+}
+
+.prose strong {
+  color: var(--wid-text);
+  font-weight: 600;
+}
+
+/* Markdown tables */
+.prose table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--wid-text-sm);
+}
+
+.prose th,
+.prose td {
+  padding: var(--wid-sp-1) var(--wid-sp-2);
+  border-bottom: 1px solid var(--wid-border);
+  text-align: left;
+}
+
+.prose th {
+  color: var(--wid-text-dim);
+  font-weight: 500;
+  font-size: var(--wid-text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+/* ── Checkbox styling ──────────────────────────────────────────────────── */
+
+input[type="checkbox"]:focus-visible {
+  outline: 2px solid var(--wid-green-text);
+  outline-offset: 2px;
+}
+
+/* ── Error message styling ─────────────────────────────────────────────── */
+/* Distinguish validation errors from internal errors via class names
+   applied in the HTML builder. No status communicated by color alone:
+   each gets a text prefix (see demo.py error handling). */
+
+.wid-error-validation {
+  border-left: 3px solid var(--wid-amber);
+}
+
+.wid-error-internal {
+  border-left: 3px solid var(--wid-red);
+}
+
+/* ── Responsive ────────────────────────────────────────────────────────── */
+
+@media (max-width: 768px) {
+  .wid-sim-bar-bg {
+    width: 50px;
+  }
+
+  .wid-results-table {
+    font-size: var(--wid-text-xs);
+  }
+
+  .wid-results-table th,
+  .wid-results-table td {
+    padding: var(--wid-sp-1);
+  }
+}
+
+@media (max-width: 480px) {
+  :root {
+    --wid-text-xs:   0.625rem;
+    --wid-text-sm:   0.6875rem;
+    --wid-text-base: 0.75rem;
+    --wid-text-lg:   0.875rem;
+  }
+
+  .wid-sim-bar-bg {
+    width: 40px;
+  }
+
+  #wid-header .wid-wordmark {
+    font-size: var(--wid-text-base);
+  }
+
+  /* Stack tab buttons on very narrow screens */
+  .tab-nav {
+    flex-wrap: wrap;
+  }
+
+  .tab-nav button {
+    padding: var(--wid-sp-1) var(--wid-sp-2);
+    font-size: 0.5625rem;
+  }
+}
+
+/* Smallest target: 375px */
+@media (max-width: 375px) {
+  :root {
+    --wid-sp-3: 12px;
+    --wid-sp-4: 16px;
+  }
+
+  .wid-results-table {
+    font-size: 0.5625rem;
+  }
+
+  .wid-sim-bar-bg {
+    width: 30px;
+  }
+
+  .wid-result-summary {
+    padding: var(--wid-sp-1) var(--wid-sp-2);
+  }
+
+  .wid-note {
+    padding: var(--wid-sp-1) var(--wid-sp-2);
+  }
+}
+
+/* =============================================================================
+   Shell Layout: gr.Row (#wid-shell) > gr.Column (#wid-sidebar-col + #wid-content-pane)
+   Gradio renders gr.Row as a flex row. We enforce the 232 px sidebar via the
+   column's own Gradio wrapper and override any Gradio padding/gap on it.
+   ============================================================================= */
+
+/* Gradio wraps the gr.Row in .gradio-row; we target by id to stay specific */
+#wid-shell {
+  display: flex !important;
+  flex-direction: row !important;
+  flex-wrap: nowrap !important;
+  align-items: flex-start !important;
+  gap: 0 !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  min-height: 100vh !important;
+  background: var(--wid-bg) !important;
+  width: 100% !important;
+}
+
+/* Gradio wraps each gr.Column in a div.gradio-column.
+   We target the sidebar column by its elem_id. */
+#wid-sidebar-col {
+  flex: 0 0 var(--wid-sidebar-width) !important;
+  width: var(--wid-sidebar-width) !important;
+  min-width: var(--wid-sidebar-width) !important;
+  max-width: var(--wid-sidebar-width) !important;
+  padding: 0 !important;
+  gap: 0 !important;
+  /* Gradio adds overflow:hidden on columns; override so sticky child works */
+  overflow: visible !important;
+}
+
+/* The sidebar nav fills its Gradio column and sticks to the viewport top */
+#wid-sidebar {
+  width: 100% !important;
+  min-width: 0 !important;
+  position: sticky !important;
+  top: 0 !important;
+  height: 100vh !important;
+  background: var(--wid-surface) !important;
+  border-right: 1px solid var(--wid-border) !important;
+  display: flex !important;
+  flex-direction: column !important;
+  padding: var(--wid-sp-16) 0 !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  z-index: 100 !important;
+  box-sizing: border-box !important;
+}
+
+/* Gradio-injected HTML wrappers inside the sidebar column — strip padding */
+#wid-shell-top,
+#wid-shell-top > div {
+  display: contents !important;
+}
+
+/* Content pane column */
+#wid-content-pane {
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+  max-width: calc(100vw - var(--wid-sidebar-width)) !important;
+  padding: var(--wid-sp-24) var(--wid-sp-32) !important;
+  overflow-y: auto !important;
+  box-sizing: border-box !important;
+  background: var(--wid-bg) !important;
+}
+
+/* Hide the old wid-header (duplicate of sidebar status) */
+#wid-header {
+  display: none !important;
+}
+
+/* Hide Gradio's native tab bar — keep it in DOM for tab-switching logic */
+#wid-main-tabs > .tab-nav {
+  display: none !important;
+}
+
+/* Replace Gradio's default orange with our green across all interactive states */
+:root {
+  --color-accent: var(--wid-green) !important;
+  --color-accent-soft: var(--wid-green-subtle) !important;
+  --button-primary-background-fill: var(--wid-green) !important;
+  --button-primary-background-fill-hover: var(--wid-green-hover) !important;
+  --button-primary-text-color: var(--wid-text) !important;
+  --slider-color: var(--wid-green-text) !important;
+  --checkbox-label-border-color-focus: var(--wid-border-focus) !important;
+  --block-border-color-focus: var(--wid-border-focus) !important;
+}
+
+/* Erase any residual Gradio orange on tab-selected state */
+.tab-nav button.selected {
+  color: var(--wid-text) !important;
+  border-bottom-color: transparent !important;
+}
+
+/* ── Mobile Header (Hidden on Desktop & Tablet) ─────────────────────────── */
+#wid-mobile-header {
+  display: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--wid-mobile-header-height);
+  background: var(--wid-surface);
+  border-bottom: 1px solid var(--wid-border);
+  z-index: 900;
+  align-items: center;
+  padding: 0 var(--wid-sp-16);
+  box-sizing: border-box;
+}
+
+.wid-mobile-bar {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  gap: var(--wid-sp-16);
+}
+
+.wid-hamburger-btn {
+  background: transparent;
+  border: 1px solid var(--wid-border);
+  border-radius: var(--wid-radius-sm);
+  color: var(--wid-text);
+  cursor: pointer;
+  padding: var(--wid-sp-4) var(--wid-sp-8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background var(--wid-duration-fast) ease, color var(--wid-duration-fast) ease;
+}
+
+.wid-hamburger-btn:hover {
+  background: var(--wid-surface-alt);
+  color: var(--wid-green-text);
+}
+
+.wid-mobile-brand {
+  display: flex;
+  align-items: center;
+  gap: var(--wid-sp-8);
+  font-size: var(--wid-text-base);
+  font-weight: 600;
+}
+
+.wid-mobile-wordmark {
+  font-family: var(--wid-font-mono);
+  letter-spacing: 0.12em;
+  color: var(--wid-text);
+}
+
+.wid-mobile-sep {
+  color: var(--wid-text-muted);
+}
+
+.wid-mobile-page-title {
+  color: var(--wid-green-text);
+  font-weight: 500;
+  font-size: var(--wid-text-sm);
+}
+
+/* Drawer Backdrop for Mobile */
+#wid-drawer-backdrop {
+  display: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  z-index: 999;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--wid-duration-fast) ease;
+}
+
+#wid-drawer-backdrop.wid-active {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* ── Sidebar Branding & Status ─────────────────────────────────────────── */
+.wid-brand-wrap {
+  padding: 0 var(--wid-sp-16) var(--wid-sp-16) var(--wid-sp-16);
+  border-bottom: 1px solid var(--wid-border);
+}
+
+.wid-brand-wrap .wid-wordmark {
+  font-family: var(--wid-font-mono);
+  font-size: var(--wid-text-lg);
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: var(--wid-text);
+  margin: 0;
+  display: flex;
+  align-items: center;
+}
+
+.wid-brand-wrap .wid-subtitle {
+  font-family: var(--wid-font-sans);
+  font-size: var(--wid-text-xs);
+  color: var(--wid-text-dim);
+  margin: var(--wid-sp-4) 0 0 0;
+  line-height: 1.3;
+}
+
+.wid-status-badge {
+  display: flex;
+  align-items: center;
+  gap: var(--wid-sp-8);
+  margin-top: var(--wid-sp-8);
+  font-family: var(--wid-font-mono);
+  font-size: var(--wid-text-xs);
+  color: var(--wid-text-muted);
+}
+
+.wid-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--wid-green-text);
+  flex-shrink: 0;
+}
+
+/* ── Sidebar Navigation Items ──────────────────────────────────────────── */
+.wid-nav-list {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--wid-sp-8) 0;
+  margin: 0;
+  flex: 1 1 auto;
+}
+
+/* Active Page Indicator: Edge bar (not a pill) */
+.wid-nav-indicator {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 3px;
+  height: 38px;
+  background: var(--wid-green-text);
+  pointer-events: none;
+  z-index: 2;
+  transition: transform var(--wid-duration-slider) var(--wid-ease), height var(--wid-duration-fast) ease;
+}
+
+.wid-nav-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: var(--wid-sp-8) var(--wid-sp-16);
+  font-family: var(--wid-font-sans);
+  font-size: var(--wid-text-sm);
+  color: var(--wid-text-dim);
+  background: transparent;
+  border: none;
+  border-left: 3px solid transparent;
+  border-radius: 0 !important;
+  text-align: left;
+  cursor: pointer;
+  transition: color var(--wid-duration-fast) ease, background var(--wid-duration-fast) ease;
+  box-sizing: border-box;
+  text-decoration: none;
+  user-select: none;
+}
+
+.wid-nav-item:hover {
+  color: var(--wid-text);
+  background: var(--wid-surface-alt);
+}
+
+.wid-nav-item.active {
+  color: var(--wid-text);
+  background: var(--wid-surface-alt);
+  border-left-color: var(--wid-green-text);
+  font-weight: 500;
+}
+
+.wid-nav-icon {
+  flex-shrink: 0;
+  margin-right: var(--wid-sp-16);
+  color: inherit;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.wid-nav-label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  letter-spacing: 0.01em;
+}
+
+/* Sidebar Footer / Honesty Note */
+.wid-honesty-sidebar {
+  padding: var(--wid-sp-16);
+  border-top: 1px solid var(--wid-border);
+  font-size: var(--wid-text-xs);
+  color: var(--wid-text-muted);
+  line-height: 1.4;
+}
+
+.wid-honesty-sidebar strong {
+  color: var(--wid-amber);
+}
+
+/* ── Page Entry Animation — progressive enhancement ───────────────────── */
+/* Only a `from` state; natural end state of element is visible. */
+/* fill-mode: backwards means invisible only while animation is running   */
+/* (i.e. during the delay). JS adds the class; a timer removes it.        */
+@keyframes widPageEnter {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+}
+
+.wid-page-entering,
+[role="tabpanel"].wid-tab-entering,
+.tabitem.wid-tab-entering {
+  animation: widPageEnter var(--wid-duration-page) var(--wid-ease) backwards;
+  will-change: opacity, transform;
+}
+
+/* ── Tablet Viewport (641px – 1023px): Collapse Sidebar to Icons ────────── */
+@media (max-width: 1023px) and (min-width: 641px) {
+  #wid-sidebar-col {
+    flex: 0 0 var(--wid-sidebar-collapsed-width) !important;
+    width: var(--wid-sidebar-collapsed-width) !important;
+    min-width: var(--wid-sidebar-collapsed-width) !important;
+    max-width: var(--wid-sidebar-collapsed-width) !important;
+  }
+
+  #wid-sidebar {
+    padding: var(--wid-sp-16) 0 !important;
+  }
+
+  .wid-brand-wrap {
+    padding: 0 0 var(--wid-sp-16) 0 !important;
+    text-align: center;
+  }
+
+  .wid-brand-wrap .wid-wordmark {
+    justify-content: center !important;
+    font-size: 0.8125rem !important;
+    letter-spacing: 0.05em !important;
+  }
+
+  .wid-brand-wrap .wid-subtitle,
+  .wid-status-badge,
+  .wid-honesty-sidebar,
+  .wid-nav-label {
+    display: none !important;
+  }
+
+  .wid-nav-item {
+    justify-content: center !important;
+    padding: var(--wid-sp-8) 0 !important;
+  }
+
+  .wid-nav-icon {
+    margin-right: 0 !important;
+  }
+
+  #wid-content-pane {
+    padding: var(--wid-sp-16) var(--wid-sp-24) !important;
+    max-width: calc(100vw - var(--wid-sidebar-collapsed-width)) !important;
+  }
+}
+
+/* ── Mobile Viewport (<= 640px): Slide-In Drawer ─────────────────────── */
+@media (max-width: 640px) {
+  #wid-mobile-header {
+    display: flex !important;
+  }
+
+  #wid-drawer-backdrop {
+    display: block !important;
+  }
+
+  /* In mobile, sidebar column has no width — sidebar is fixed/off-screen */
+  #wid-sidebar-col {
+    flex: 0 0 0 !important;
+    width: 0 !important;
+    min-width: 0 !important;
+    max-width: 0 !important;
+    overflow: hidden !important;
+  }
+
+  #wid-sidebar {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    bottom: 0 !important;
+    width: var(--wid-sidebar-width) !important;
+    min-width: var(--wid-sidebar-width) !important;
+    max-width: var(--wid-sidebar-width) !important;
+    height: 100vh !important;
+    z-index: 1000 !important;
+    transform: translateX(-100%) !important;
+    transition: transform var(--wid-duration-slider) var(--wid-ease) !important;
+    box-shadow: 4px 0 24px rgba(0, 0, 0, 0.7) !important;
+  }
+
+  #wid-sidebar.wid-drawer-open {
+    transform: translateX(0) !important;
+  }
+
+  #wid-content-pane {
+    padding: var(--wid-sp-16) !important;
+    padding-top: calc(var(--wid-mobile-header-height) + var(--wid-sp-16)) !important;
+    max-width: 100vw !important;
+  }
+}
+
+/* ── Overview & Placeholder Page Cards ───────────────────────────────── */
+.wid-overview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: var(--wid-sp-16);
+  margin-bottom: var(--wid-sp-24);
+}
+
+.wid-overview-card {
+  background: var(--wid-surface);
+  border: 1px solid var(--wid-border);
+  border-radius: var(--wid-radius);
+  padding: var(--wid-sp-16);
+}
+
+.wid-card-label {
+  font-family: var(--wid-font-mono);
+  font-size: var(--wid-text-xs);
+  color: var(--wid-text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.wid-card-value {
+  font-size: var(--wid-text-xl);
+  font-weight: 600;
+  color: var(--wid-text);
+  margin: var(--wid-sp-4) 0;
+}
+
+.wid-card-sub {
+  font-size: var(--wid-text-xs);
+  color: var(--wid-text-muted);
+}
+
+.wid-pipeline-list {
+  padding-left: var(--wid-sp-24);
+  line-height: 1.8;
+  color: var(--wid-text);
+}
+
+.wid-pipeline-list strong {
+  color: var(--wid-green-text);
+}
+
+.wid-placeholder-card {
+  background: var(--wid-surface);
+  border: 1px dashed var(--wid-border);
+  border-radius: var(--wid-radius);
+  padding: var(--wid-sp-24);
+  margin-top: var(--wid-sp-16);
+}
+
+.wid-placeholder-badge {
+  display: inline-block;
+  font-family: var(--wid-font-mono);
+  font-size: var(--wid-text-xs);
+  color: var(--wid-amber);
+  background: var(--wid-amber-subtle);
+  border: 1px solid var(--wid-amber);
+  border-radius: var(--wid-radius-sm);
+  padding: 2px var(--wid-sp-8);
+  margin-bottom: var(--wid-sp-8);
+}
+
+.wid-placeholder-title {
+  font-size: var(--wid-text-lg);
+  font-weight: 600;
+  color: var(--wid-text);
+  margin: 0 0 var(--wid-sp-8) 0;
+}
+
+.wid-placeholder-desc {
+  font-size: var(--wid-text-sm);
+  color: var(--wid-text-dim);
+  line-height: 1.6;
+  margin-bottom: var(--wid-sp-16);
+}
+
+.wid-placeholder-grid-preview,
+.wid-placeholder-metrics-preview {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: var(--wid-sp-8);
+  margin-bottom: var(--wid-sp-16);
+}
+
+.wid-placeholder-item-box,
+.wid-placeholder-metric {
+  background: var(--wid-surface-alt);
+  border: 1px solid var(--wid-border);
+  border-radius: var(--wid-radius-sm);
+  padding: var(--wid-sp-8);
+  display: flex;
+  flex-direction: column;
+  gap: var(--wid-sp-4);
+}
+
+.wid-placeholder-item-box span,
+.wid-placeholder-metric span {
+  font-family: var(--wid-font-mono);
+  font-size: var(--wid-text-xs);
+  color: var(--wid-text);
+}
+
+.wid-placeholder-item-box small,
+.wid-placeholder-metric small {
+  color: var(--wid-text-muted);
+  font-size: 0.6875rem;
+}
+
+.wid-placeholder-metric strong {
+  font-size: var(--wid-text-lg);
+  color: var(--wid-text-dim);
+}
+
+.wid-honesty-banner {
+  background: var(--wid-surface-alt);
+  border-left: 3px solid var(--wid-amber);
+  padding: var(--wid-sp-8) var(--wid-sp-16);
+  font-size: var(--wid-text-xs);
+  color: var(--wid-text-dim);
+  margin-bottom: var(--wid-sp-16);
+}
+
+.wid-placeholder-note {
+  font-size: var(--wid-text-xs);
+  color: var(--wid-text-muted);
+  font-style: italic;
+  margin: 0;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Design System Enhancements: 3 Elevation Surfaces, Header, Overview, Identify
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Uniform Page Header (elem_id: #wid-page-header) ────────────────────── */
+.wid-page-header {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  padding-bottom: var(--wid-sp-16) !important;
+  margin-bottom: var(--wid-sp-24) !important;
+  border-bottom: 1px solid var(--wid-border) !important;
+}
+
+.wid-page-header-text {
+  flex: 1 1 auto !important;
+}
+
+.wid-page-title {
+  font-family: var(--wid-font-sans) !important;
+  font-size: var(--wid-text-xl) !important;
+  font-weight: 600 !important;
+  color: var(--wid-text) !important;
+  margin: 0 0 var(--wid-sp-4) 0 !important;
+  letter-spacing: -0.01em !important;
+}
+
+.wid-page-desc {
+  font-family: var(--wid-font-sans) !important;
+  font-size: var(--wid-text-sm) !important;
+  color: var(--wid-text-dim) !important;
+  margin: 0 !important;
+  line-height: 1.4 !important;
+}
+
+.wid-page-header-action {
+  flex-shrink: 0 !important;
+  margin-left: var(--wid-sp-16) !important;
+}
+
+.wid-btn-header {
+  font-family: var(--wid-font-mono) !important;
+  font-size: var(--wid-text-xs) !important;
+  font-weight: 500 !important;
+  letter-spacing: 0.08em !important;
+  text-transform: uppercase !important;
+  background: var(--wid-green) !important;
+  color: var(--wid-text) !important;
+  border: 1px solid var(--wid-green) !important;
+  border-radius: var(--wid-radius) !important;
+  padding: var(--wid-sp-8) var(--wid-sp-16) !important;
+  cursor: pointer !important;
+  transition: background var(--wid-transition) !important;
+}
+
+.wid-btn-header:hover {
+  background: var(--wid-green-hover) !important;
+}
+
+/* ── Overview Layout: 3 Elevation Levels & Horizontal Pipeline ──────────── */
+#wid-overview-start-col {
+  background: var(--wid-surface) !important;
+  border: 1px solid var(--wid-border) !important;
+  border-radius: var(--wid-radius-lg) !important;
+  padding: var(--wid-sp-24) !important;
+  box-sizing: border-box !important;
+}
+
+.wid-start-panel-title {
+  font-family: var(--wid-font-sans) !important;
+  font-size: var(--wid-text-lg) !important;
+  font-weight: 600 !important;
+  color: var(--wid-text) !important;
+  margin: 0 0 var(--wid-sp-8) 0 !important;
+}
+
+.wid-start-panel-desc {
+  font-family: var(--wid-font-sans) !important;
+  font-size: var(--wid-text-sm) !important;
+  color: var(--wid-text-dim) !important;
+  line-height: 1.5 !important;
+  margin-bottom: var(--wid-sp-24) !important;
+}
+
+#wid-overview-goto-identify button {
+  width: 100% !important;
+  height: 42px !important;
+  font-size: var(--wid-text-sm) !important;
+}
+
+.wid-status-panel {
+  background: var(--wid-surface) !important;
+  border: 1px solid var(--wid-border) !important;
+  border-radius: var(--wid-radius-lg) !important;
+  padding: var(--wid-sp-24) !important;
+  height: 100% !important;
+  box-sizing: border-box !important;
+}
+
+.wid-status-panel-title {
+  font-family: var(--wid-font-mono) !important;
+  font-size: var(--wid-text-xs) !important;
+  font-weight: 500 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.1em !important;
+  color: var(--wid-text-dim) !important;
+  margin: 0 0 var(--wid-sp-16) 0 !important;
+}
+
+.wid-status-dl {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: var(--wid-sp-16) !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+.wid-status-row {
+  display: flex !important;
+  justify-content: space-between !important;
+  align-items: baseline !important;
+  padding-bottom: var(--wid-sp-8) !important;
+  border-bottom: 1px solid var(--wid-border) !important;
+}
+
+.wid-status-row:last-child {
+  border-bottom: none !important;
+  padding-bottom: 0 !important;
+}
+
+.wid-status-row dt {
+  font-family: var(--wid-font-sans) !important;
+  font-size: var(--wid-text-sm) !important;
+  color: var(--wid-text-dim) !important;
+  font-weight: 500 !important;
+}
+
+.wid-status-row dd {
+  font-family: var(--wid-font-mono) !important;
+  font-size: var(--wid-text-sm) !important;
+  color: var(--wid-text) !important;
+  margin: 0 !important;
+  text-align: right !important;
+}
+
+.wid-status-badge-inline {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: var(--wid-sp-4) !important;
+}
+
+.wid-dot-green {
+  width: 6px !important;
+  height: 6px !important;
+  border-radius: 50% !important;
+  background: var(--wid-green-text) !important;
+  display: inline-block !important;
+}
+
+.wid-dot-amber {
+  width: 6px !important;
+  height: 6px !important;
+  border-radius: 50% !important;
+  background: var(--wid-amber) !important;
+  display: inline-block !important;
+}
+
+.wid-tag-amber {
+  font-size: var(--wid-text-xs) !important;
+  color: var(--wid-amber) !important;
+  background: var(--wid-amber-subtle) !important;
+  border: 1px solid var(--wid-amber) !important;
+  border-radius: var(--wid-radius-sm) !important;
+  padding: 1px 6px !important;
+  margin-left: 6px !important;
+  font-style: normal !important;
+}
+
+/* Horizontal Pipeline Step Diagram */
+.wid-pipeline-diagram {
+  margin: var(--wid-sp-24) 0 !important;
+  background: var(--wid-surface) !important;
+  border: 1px solid var(--wid-border) !important;
+  border-radius: var(--wid-radius-lg) !important;
+  padding: var(--wid-sp-24) !important;
+}
+
+.wid-diagram-title {
+  font-family: var(--wid-font-mono) !important;
+  font-size: var(--wid-text-xs) !important;
+  font-weight: 500 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.1em !important;
+  color: var(--wid-text-dim) !important;
+  margin: 0 0 var(--wid-sp-16) 0 !important;
+}
+
+.wid-steps-track {
+  display: flex !important;
+  align-items: stretch !important;
+  gap: var(--wid-sp-8) !important;
+  width: 100% !important;
+  overflow-x: auto !important;
+}
+
+.wid-step-card {
+  flex: 1 1 0 !important;
+  min-width: 160px !important;
+  background: var(--wid-surface-alt) !important;
+  border: 1px solid var(--wid-border) !important;
+  border-radius: var(--wid-radius) !important;
+  padding: var(--wid-sp-16) !important;
+  box-sizing: border-box !important;
+}
+
+.wid-step-num {
+  font-family: var(--wid-font-mono) !important;
+  font-size: var(--wid-text-xs) !important;
+  font-weight: 600 !important;
+  color: var(--wid-green-text) !important;
+  margin-bottom: var(--wid-sp-4) !important;
+}
+
+.wid-step-name {
+  font-family: var(--wid-font-sans) !important;
+  font-size: var(--wid-text-sm) !important;
+  font-weight: 600 !important;
+  color: var(--wid-text) !important;
+  margin-bottom: var(--wid-sp-4) !important;
+}
+
+.wid-step-model {
+  font-family: var(--wid-font-mono) !important;
+  font-size: var(--wid-text-xs) !important;
+  color: var(--wid-text-dim) !important;
+  margin-bottom: var(--wid-sp-4) !important;
+}
+
+.wid-step-desc {
+  font-family: var(--wid-font-sans) !important;
+  font-size: var(--wid-text-xs) !important;
+  color: var(--wid-text-muted) !important;
+  line-height: 1.4 !important;
+}
+
+.wid-step-arrow {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  color: var(--wid-text-muted) !important;
+  font-size: var(--wid-text-md) !important;
+  padding: 0 var(--wid-sp-4) !important;
+}
+
+/* ── Identify Page Layout & Pipeline Strip ──────────────────────────────── */
+.wid-pipeline-strip {
+  display: flex !important;
+  align-items: center !important;
+  gap: var(--wid-sp-8) !important;
+  background: var(--wid-surface) !important;
+  border: 1px solid var(--wid-border) !important;
+  border-radius: var(--wid-radius) !important;
+  padding: var(--wid-sp-8) var(--wid-sp-16) !important;
+  margin-bottom: var(--wid-sp-16) !important;
+}
+
+.wid-strip-label {
+  font-family: var(--wid-font-mono) !important;
+  font-size: var(--wid-text-xs) !important;
+  color: var(--wid-text-dim) !important;
+  text-transform: uppercase !important;
+  margin-right: var(--wid-sp-8) !important;
+}
+
+.wid-strip-tag {
+  font-family: var(--wid-font-mono) !important;
+  font-size: var(--wid-text-xs) !important;
+  padding: 2px 8px !important;
+  border-radius: var(--wid-radius-sm) !important;
+  border: 1px solid var(--wid-border) !important;
+  background: var(--wid-surface-alt) !important;
+  color: var(--wid-text-dim) !important;
+}
+
+.wid-strip-tag.done {
+  border-color: var(--wid-green) !important;
+  background: var(--wid-green-subtle) !important;
+  color: var(--wid-green-text) !important;
+}
+
+.wid-strip-tag.skipped {
+  border-color: var(--wid-amber) !important;
+  background: var(--wid-amber-subtle) !important;
+  color: var(--wid-amber) !important;
+}
+
+.wid-strip-tag.failed {
+  border-color: var(--wid-red) !important;
+  background: #331a1a !important;
+  color: var(--wid-red) !important;
+}
+
+/* Summary line */
+.wid-identify-summary-line {
+  font-family: var(--wid-font-sans) !important;
+  font-size: var(--wid-text-sm) !important;
+  font-weight: 500 !important;
+  padding: var(--wid-sp-8) var(--wid-sp-16) !important;
+  background: var(--wid-surface) !important;
+  border: 1px solid var(--wid-border) !important;
+  border-radius: var(--wid-radius) !important;
+  margin-bottom: var(--wid-sp-16) !important;
+  color: var(--wid-text) !important;
+}
+
+.wid-identify-summary-line.above {
+  border-left: 3px solid var(--wid-green-text) !important;
+}
+
+.wid-identify-summary-line.below {
+  border-left: 3px solid var(--wid-amber) !important;
+}
+
+/* Candidate list with thin bars */
+.wid-candidate-list {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: var(--wid-sp-8) !important;
+}
+
+.wid-candidate-row {
+  background: var(--wid-surface-alt) !important;
+  border: 1px solid var(--wid-border) !important;
+  border-radius: var(--wid-radius) !important;
+  padding: var(--wid-sp-8) var(--wid-sp-16) !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: var(--wid-sp-4) !important;
+}
+
+.wid-cand-header {
+  display: flex !important;
+  justify-content: space-between !important;
+  align-items: baseline !important;
+}
+
+.wid-cand-name {
+  font-family: var(--wid-font-sans) !important;
+  font-size: var(--wid-text-sm) !important;
+  font-weight: 600 !important;
+  color: var(--wid-text) !important;
+}
+
+.wid-cand-file {
+  font-family: var(--wid-font-mono) !important;
+  font-size: var(--wid-text-xs) !important;
+  color: var(--wid-text-dim) !important;
+}
+
+.wid-cand-score-line {
+  display: flex !important;
+  align-items: center !important;
+  gap: var(--wid-sp-8) !important;
+}
+
+.wid-cand-score-val {
+  font-family: var(--wid-font-mono) !important;
+  font-size: var(--wid-text-xs) !important;
+  color: var(--wid-text) !important;
+  width: 48px !important;
+  font-variant-numeric: tabular-nums !important;
+}
+
+.wid-cand-bar-track {
+  flex: 1 1 auto !important;
+  height: 4px !important;
+  background: var(--wid-surface) !important;
+  border-radius: 2px !important;
+  overflow: hidden !important;
+}
+
+.wid-cand-bar-fill {
+  height: 100% !important;
+  background: var(--wid-green-text) !important;
+  border-radius: 2px !important;
+}
+
+.wid-cand-bar-fill.below {
+  background: var(--wid-text-muted) !important;
+}
+
+/* Accordion: More details */
+#wid-more-details-acc {
+  background: var(--wid-surface) !important;
+  border: 1px solid var(--wid-border) !important;
+  border-radius: var(--wid-radius) !important;
+  margin-top: var(--wid-sp-16) !important;
+}
+
+#wid-more-details-acc > .label-wrap {
+  padding: var(--wid-sp-8) var(--wid-sp-16) !important;
+  font-family: var(--wid-font-mono) !important;
+  font-size: var(--wid-text-xs) !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.08em !important;
+  color: var(--wid-text-dim) !important;
+}
+
+#wid-more-details-acc > .label-wrap:hover {
+  color: var(--wid-text) !important;
+}
+
+

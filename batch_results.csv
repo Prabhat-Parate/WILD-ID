@@ -1,0 +1,5 @@
+file,best_candidate,cosine_similarity,outcome
+NewTiger_not_in_database.png,tiger_015,0.8723,No candidate above threshold
+tiger_007_012.jpg,tiger_007,0.9861,Candidate above threshold (unverified)
+tiger_012_009.jpg,tiger_012,0.9970,Candidate above threshold (unverified)
+tiger_025_032.jpg,tiger_025,0.9620,Candidate above threshold (unverified)

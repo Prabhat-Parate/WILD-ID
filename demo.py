@@ -3,6 +3,8 @@ import os
 import sys
 import time
 import json
+import csv
+import io
 import torch
 from pathlib import Path
 from PIL import Image
@@ -36,6 +38,7 @@ from src.config import (
 )
 from src.feature_extractor import TigerFeatureExtractor
 from src.matcher import TigerMatcher
+from src.speciesnet_adapter import SpeciesNetAdapter
 from src.detector import (
     AnimalDetector,
     SpeciesClassifier,
@@ -51,6 +54,7 @@ from src.utils import (
     validate_identity_name,
     ensure_rgb_image,
     safe_process_image,
+    ImageValidationError,
     run_with_timeout,
     move_to_trash,
     submit_to_pending,
@@ -59,16 +63,23 @@ from src.utils import (
 )
 from src.logger import logger, log_inference_event
 
+# ── Paths ─────────────────────────────────────────────────────────────────────
+BASE_DIR = Path(__file__).resolve().parent
+CSS_PATH = str(BASE_DIR / "static" / "css" / "wildid.css")
+JS_PATH = str(BASE_DIR / "static" / "js" / "wildid.js")
+FAVICON_PATH = str(BASE_DIR / "static" / "favicon.svg")
+
 # Global runtime state - single shared model instances
 extractor = None
 matcher = None
 detector = None
 classifier = None
+speciesnet_classifier = None
 reference_features = {}
 
 
 def initialize_system():
-    global extractor, matcher, detector, classifier
+    global extractor, matcher, detector, classifier, speciesnet_classifier
     torch.set_num_threads(TORCH_NUM_THREADS)
 
     if extractor is None:
@@ -80,10 +91,228 @@ def initialize_system():
     if classifier is None:
         classifier = SpeciesClassifier(device='cpu')
 
+    # Disabled unless WILDID_SPECIESNET_ENABLED=1 is set before startup.
+    if SpeciesNetAdapter.enabled() and speciesnet_classifier is None:
+        speciesnet_classifier = SpeciesNetAdapter()
+
     logger.info(
         f"System initialized: PyTorch threads={torch.get_num_threads()}, "
         f"device=CPU, shared model instances loaded."
     )
+
+
+# ── HTML Helpers ──────────────────────────────────────────────────────────────
+
+def _esc(text):
+    """Minimal HTML escaping for dynamic values."""
+    return str(text).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
+
+
+def get_page_header_html(title, desc, action_label=None, action_page_idx=None):
+    """Generate uniform page header across all pages."""
+    action_btn = ""
+    if action_label and action_page_idx is not None:
+        action_btn = (
+            f'<div class="wid-page-header-action">'
+            f'<button class="wid-btn-header" onclick="window.__wid_switch_page({action_page_idx})">'
+            f'{_esc(action_label)}'
+            f'</button>'
+            f'</div>'
+        )
+    return (
+        f'<div class="wid-page-header">'
+        f'  <div class="wid-page-header-text">'
+        f'    <h1 class="wid-page-title">{_esc(title)}</h1>'
+        f'    <p class="wid-page-desc">{_esc(desc)}</p>'
+        f'  </div>'
+        f'  {action_btn}'
+        f'</div>'
+    )
+
+
+def get_overview_status_html():
+    """Return key-value status card populated from real runtime objects."""
+    # 1. Model status & loaded names
+    if extractor is not None:
+        model_status_badge = '<span class="wid-status-badge-inline"><span class="wid-dot-green"></span> Loaded</span>'
+        reid_name = "ViT-Base (vit_base_patch16_224, 128-d)"
+    else:
+        model_status_badge = '<span class="wid-status-badge-inline"><span class="wid-dot-amber"></span> Unloaded</span>'
+        reid_name = "None"
+
+    detector_name = "SSDLite320-MobileNetV3 (COCO)" if detector is not None else "Unloaded"
+    species_name = "MobileNetV3-Small (ImageNet-1k)" if classifier is not None else "Unloaded"
+
+    # 2. Database individuals & reference images as separate counts
+    if matcher is not None and matcher.reference_features:
+        stats = matcher.get_statistics()
+        db_badge = '<span class="wid-status-badge-inline"><span class="wid-dot-green"></span> Loaded</span>'
+        num_indiv = str(stats["total_individuals"])
+        num_images = str(stats["total_images"])
+    else:
+        db_badge = '<span class="wid-status-badge-inline"><span class="wid-dot-amber"></span> No database loaded</span>'
+        num_indiv = "0"
+        num_images = "0"
+
+    threshold_val = f'{SIMILARITY_THRESHOLD:.2f} <em class="wid-tag-amber">{_esc(THRESHOLD_LABEL)}</em>'
+
+    return (
+        f'<div class="wid-status-panel">'
+        f'  <div class="wid-status-panel-title">System & Database Status</div>'
+        f'  <dl class="wid-status-dl">'
+        f'    <div class="wid-status-row"><dt>Embedding Model</dt><dd>{model_status_badge}</dd></div>'
+        f'    <div class="wid-status-row"><dt>Re-ID Backbone</dt><dd>{_esc(reid_name)}</dd></div>'
+        f'    <div class="wid-status-row"><dt>Localizer & Classifier</dt><dd>{_esc(detector_name)} &bull; {_esc(species_name)}</dd></div>'
+        f'    <div class="wid-status-row"><dt>Reference Database</dt><dd>{db_badge}</dd></div>'
+        f'    <div class="wid-status-row"><dt>Known Individuals</dt><dd>{num_indiv}</dd></div>'
+        f'    <div class="wid-status-row"><dt>Reference Images</dt><dd>{num_images}</dd></div>'
+        f'    <div class="wid-status-row"><dt>Threshold</dt><dd>{threshold_val}</dd></div>'
+        f'  </dl>'
+        f'</div>'
+    )
+
+
+def get_pipeline_steps_html():
+    """Return horizontal step diagram of the four real pipeline stages."""
+    steps = [
+        ("01", "Localization", "SSDLite320-MobileNetV3", "Locates candidate animal boxes; bounded detection output."),
+        ("02", "Privacy Filter", "Built-in Rule", "Detects and suppresses human presence; never cropped or stored."),
+        ("03", "Species Verifier", "MobileNetV3-Small", "Classifies crops; non-tiger fauna bypassed from re-ID."),
+        ("04", "Re-Identification", "ViT-Base (128-dim)", "Cosine ranking against reference vector store.")
+    ]
+
+    parts = [
+        '<div class="wid-pipeline-diagram">',
+        '  <div class="wid-diagram-title">Four-Stage Inference Pipeline</div>',
+        '  <div class="wid-steps-track">'
+    ]
+    for idx, (num, name, model, desc) in enumerate(steps):
+        parts.append(
+            f'    <div class="wid-step-card">'
+            f'      <div class="wid-step-num">STAGE {num}</div>'
+            f'      <div class="wid-step-name">{_esc(name)}</div>'
+            f'      <div class="wid-step-model">{_esc(model)}</div>'
+            f'      <div class="wid-step-desc">{_esc(desc)}</div>'
+            f'    </div>'
+        )
+        if idx < len(steps) - 1:
+            parts.append('    <div class="wid-step-arrow">&rarr;</div>')
+    parts.append('  </div>')
+    parts.append('</div>')
+    return "\n".join(parts)
+
+
+def get_db_status_html():
+    """Return a small HTML fragment showing current database and model status."""
+    if matcher is not None and matcher.reference_features:
+        stats = matcher.get_statistics()
+        db_part = (
+            f'<span class="wid-status-loaded">Database loaded</span>'
+            f' &mdash; {stats["total_individuals"]} individuals, '
+            f'{stats["total_images"]} reference images'
+        )
+    else:
+        db_part = '<span class="wid-status-unloaded">No database loaded</span>'
+
+    model_part = (
+        '<span class="wid-status-loaded">Model loaded</span>'
+        if extractor is not None
+        else '<span class="wid-status-unloaded">Model not loaded</span>'
+    )
+
+    return (
+        f'<div id="wid-header">'
+        f'<p class="wid-wordmark">WILD-ID</p>'
+        f'<p class="wid-subtitle">Individual tiger re-identification</p>'
+        f'<p class="wid-status">{db_part} &nbsp;|&nbsp; {model_part}</p>'
+        f'</div>'
+    )
+
+
+def build_reid_html(best_match, best_score, top_candidates, threshold):
+    """Build a structured HTML results panel for re-identification ranking."""
+    is_above = best_match is not None
+    outcome_text = OUTCOME_ABOVE_THRESHOLD if is_above else OUTCOME_BELOW_THRESHOLD
+    outcome_class = "above" if is_above else "below"
+
+    # 1. Summary line first
+    parts = [
+        f'<div class="wid-identify-summary-line {outcome_class}">'
+        f'  <strong>Outcome:</strong> {_esc(outcome_text)} &mdash; '
+        f'  Highest cosine: <code>{best_score:.4f}</code> '
+        f'  (Threshold: <code>{threshold:.4f}</code> &bull; {_esc(THRESHOLD_LABEL)})'
+        f'</div>',
+        f'<div class="wid-candidate-list">'
+    ]
+
+    # 2. Top 5 candidates with file name and numeric cosine beside a thin bar
+    for i, cand in enumerate(top_candidates[:5], 1):
+        name = cand["name"]
+        score = cand["score"]
+        bar_pct = max(0.0, min(100.0, score * 100.0))
+        ref_files = cand.get("reference_images", [])
+        ref_basename = os.path.basename(ref_files[0]) if ref_files else "reference_crop.jpg"
+        bar_cls = "above" if score >= threshold else "below"
+
+        parts.append(
+            f'  <div class="wid-candidate-row">'
+            f'    <div class="wid-cand-header">'
+            f'      <span class="wid-cand-name">#{i} {_esc(name)}</span>'
+            f'      <span class="wid-cand-file">{_esc(ref_basename)}</span>'
+            f'    </div>'
+            f'    <div class="wid-cand-score-line">'
+            f'      <span class="wid-cand-score-val">{score:.4f}</span>'
+            f'      <div class="wid-cand-bar-track">'
+            f'        <div class="wid-cand-bar-fill {bar_cls}" style="width:{bar_pct:.1f}%;"></div>'
+            f'      </div>'
+            f'    </div>'
+            f'  </div>'
+        )
+
+    parts.append('</div>')
+    return "\n".join(parts)
+
+
+def build_batch_html(rows, total_count):
+    """Build an HTML table for batch results."""
+    parts = [
+        f'<div class="wid-result-summary below-threshold">',
+        f'  <div class="wid-summary-outcome">Batch ranking complete &mdash; {total_count} images</div>',
+        f'  <div class="wid-summary-detail">',
+        f'    Threshold: {SIMILARITY_THRESHOLD:.4f} ({_esc(THRESHOLD_LABEL)})',
+        f'    &nbsp;|&nbsp; {_esc(SIMILARITY_NOTE)}',
+        f'  </div>',
+        f'</div>',
+        f'<div class="wid-table-scroll">',
+        f'<table class="wid-results-table">',
+        f'<thead><tr>',
+        f'  <th>File</th><th>Best candidate</th><th>{_esc(SIMILARITY_LABEL)}</th><th></th><th>Outcome</th>',
+        f'</tr></thead>',
+        f'<tbody>',
+    ]
+
+    for idx, row in enumerate(rows, 1):
+        bar_pct = max(0, min(100, row["score"] * 100))
+        bar_class = "above-threshold" if row["above"] else "below-threshold"
+        row_class = "wid-outcome-above" if row["above"] else "wid-outcome-below"
+
+        stagger_idx = min(idx, 10)
+        parts.append(f'<tr style="--row-index:{stagger_idx};">')
+        parts.append(f'  <td>{_esc(row["file"])}</td>')
+        parts.append(f'  <td class="{row_class}">{_esc(row["candidate"])}</td>')
+        parts.append(f'  <td style="font-variant-numeric:tabular-nums;">{row["score"]:.4f}</td>')
+        parts.append(
+            f'  <td><span class="wid-sim-bar-bg">'
+            f'<span class="wid-sim-bar-fill {bar_class}" style="width:{bar_pct:.1f}%"></span>'
+            f'</span></td>'
+        )
+        parts.append(f'  <td class="{row_class}">{_esc(row["outcome"])}</td>')
+        parts.append(f'</tr>')
+
+    parts.append(f'</tbody></table>')
+    parts.append(f'</div>')
+
+    return "\n".join(parts)
 
 
 # ── Database Management ───────────────────────────────────────────────────────
@@ -99,12 +328,12 @@ def load_existing_database():
         return (
             f"No existing database found at:\n  {NPZ_PATH}\n\n"
             "Use 'Build Database from Images' or run 'python migrate_database.py' first."
-        )
+        ), get_db_status_html()
 
     reference_features = load_features()
 
     if not reference_features:
-        return "Database file exists but is empty. Rebuild it."
+        return "Database file exists but is empty. Rebuild it.", get_db_status_html()
 
     matcher = TigerMatcher()
     for img_path, features in reference_features.items():
@@ -123,7 +352,7 @@ def load_existing_database():
         f"Known tigers ({stats['total_individuals']}):\n" +
         "\n".join(f"  {name}" for name in sorted(stats['individuals']))
     )
-    return result
+    return result, get_db_status_html()
 
 
 def build_reference_database():
@@ -138,7 +367,7 @@ def build_reference_database():
 
     individuals = parse_reference_structure(REFERENCE_DIR)
     if not individuals:
-        yield "No reference images found. Add images to data/reference/"
+        yield "No reference images found. Add images to data/reference/", get_db_status_html()
         return
 
     all_tasks = []
@@ -168,14 +397,14 @@ def build_reference_database():
             remaining_str = "calculating..."
 
         live_status = (
-            f"BUILDING DATABASE...\n"
-            f"{'─'*40}\n\n"
+            f"Building database...\n"
+            f"{'_'*40}\n\n"
             f"Processing : {os.path.basename(img_path)}\n"
             f"Progress   : {done}/{total} images done\n\n"
             f"Elapsed    : {fmt_time(elapsed)}\n"
             f"Remaining  : {remaining_str}"
         )
-        yield live_status
+        yield live_status, get_db_status_html()
 
         features = extractor.extract_features(img_path)
         if features is not None:
@@ -188,15 +417,15 @@ def build_reference_database():
     stats = matcher.get_statistics()
 
     result = (
-        f"Database built and saved atomically.\n"
-        f"{'─'*40}\n\n"
+        f"Database built and saved.\n"
+        f"{'_'*40}\n\n"
         f"Individuals loaded : {stats['total_individuals']}\n"
         f"Total images       : {stats['total_images']}\n"
         f"Total time taken   : {fmt_time(total_elapsed)}\n\n"
         f"Known tigers ({stats['total_individuals']}):\n" +
         "\n".join(f"  {name}" for name in sorted(stats['individuals']))
     )
-    yield result
+    yield result, get_db_status_html()
 
 
 def delete_tiger(tiger_name, confirm_delete=False):
@@ -209,8 +438,8 @@ def delete_tiger(tiger_name, confirm_delete=False):
 
     if not confirm_delete:
         return (
-            "DELETION ABORTED: Explicit confirmation required.\n"
-            "Please check the 'Confirm moving tiger to trash' box before proceeding."
+            "Deletion aborted: explicit confirmation required.\n"
+            "Check the 'Confirm moving tiger to trash' box before proceeding."
         )
 
     is_valid, sanitized_name = validate_identity_name(tiger_name, REFERENCE_DIR)
@@ -259,20 +488,41 @@ def identify_tiger(image):
     """
     Run detection, privacy filtering, species verification,
     and gated individual re-identification with safety bounds and timeouts.
+
+    Returns: (detection_report_text, annotated_image, reid_html, gallery_items)
     """
     global extractor, matcher, detector, classifier
 
+    empty_html = '<div class="wid-empty-state"><strong>No results yet.</strong> Upload an image and press Identify.</div>'
+
     if matcher is None or not matcher.reference_features:
-        return "Load or build the reference database first.", None, []
+        return "No database loaded. Use Setup > Load Existing Database.", None, empty_html, []
 
     if image is None:
-        return "Please upload an image to identify.", None, []
+        return "Please upload an image to identify.", None, empty_html, []
 
     start_time = time.time()
+    # Stage 1: Validate and ingest uploaded or webcam image
     try:
-        # Safe image ingestion: enforces upload caps, rejects decompression bombs, downscales if oversized
         rgb_image, img_meta = safe_process_image(image)
+    except (ImageValidationError, ValueError) as ve:
+        logger.warning(f"Upload rejected by safety guard: {ve}")
+        return (
+            f"Image not accepted: {str(ve)}\n\n"
+            "Please check the file format (JPEG, PNG, WEBP), file size (under 15 MB), "
+            "and resolution, then try again.",
+            None, empty_html, []
+        )
+    except Exception as e:
+        logger.warning(f"Failed to read image input: {e}")
+        return (
+            f"Image not accepted: Unable to read the uploaded image ({str(e)}).\n\n"
+            "Please check that the file is a valid, uncorrupted image.",
+            None, empty_html, []
+        )
 
+    # Stage 2: Inference pipeline execution
+    try:
         # Log request without image content
         log_inference_event(
             action="IDENTIFY_TIGER_START",
@@ -292,7 +542,9 @@ def identify_tiger(image):
                 reid_extractor=extractor,
                 reid_matcher=matcher,
                 score_threshold=0.25,
-                max_detections=10
+                max_detections=10,
+                speciesnet_classifier=speciesnet_classifier,
+                speciesnet_threshold=0.65
             )
 
         frame_res = run_with_timeout(_execute_pipeline, timeout=REQUEST_TIMEOUT_SECONDS)
@@ -305,6 +557,7 @@ def identify_tiger(image):
         gallery_items = []
         top_cand_name = None
         top_cand_score = 0.0
+        reid_html = '<div class="wid-empty-state"><strong>No tiger detected.</strong> Re-identification requires a verified tiger crop.</div>'
 
         # If any verified tiger was found, run full top-5 candidate retrieval
         tiger_detections = [d for d in detections if d.get('is_tiger')]
@@ -318,37 +571,48 @@ def identify_tiger(image):
                 top_cand_name = best_match
                 top_cand_score = best_score
 
-                outcome_header = (
-                    f"OUTCOME: {OUTCOME_ABOVE_THRESHOLD}"
-                    if best_match is not None
-                    else f"OUTCOME: {OUTCOME_BELOW_THRESHOLD}"
-                )
+                # Build structured HTML result panel
+                reid_html = build_reid_html(best_match, best_score, top_candidates, SIMILARITY_THRESHOLD)
 
-                reid_lines = [
-                    "\n" + "═" * 55,
-                    "INDIVIDUAL RE-IDENTIFICATION RANKING (TIGER CROP)",
-                    "═" * 55,
-                    outcome_header,
-                    f"Threshold                  : {SIMILARITY_THRESHOLD:.4f} ({THRESHOLD_LABEL})",
-                    f"Highest {SIMILARITY_LABEL.lower()}: {best_score:.4f}",
-                ]
-                if best_match is not None:
-                    reid_lines.append(f"Top Candidate              : {best_match}")
-
-                reid_lines.append(f"\nNote: {SIMILARITY_NOTE}\n")
-                reid_lines.append(f"Top {len(top_candidates)} Candidates ranked by {SIMILARITY_LABEL.lower()}:")
-
+                # Build gallery items from top candidate reference images
                 for i, cand in enumerate(top_candidates, 1):
                     name = cand["name"]
                     score = cand["score"]
-                    bar = '█' * max(0, min(20, int(score * 20)))
-                    reid_lines.append(f"  {i}. {name:15s}  {SIMILARITY_LABEL}: {score:.4f}  {bar}")
-
                     for ref_img in cand["reference_images"][:2]:
                         if os.path.exists(ref_img):
-                            gallery_items.append((ref_img, f"#{i} {name} (Cosine sim: {score:.4f})"))
+                            gallery_items.append((ref_img, f"#{i} {name} ({SIMILARITY_LABEL}: {score:.4f})"))
 
-                summary_text += "\n" + "\n".join(reid_lines)
+        # Build pipeline status strip (done, skipped, failed)
+        loc_status = "done" if detections else ("done" if not detections else "failed")
+        privacy_status = "done"  # Privacy check always executed
+        
+        has_animal = any(d.get('category') == 'animal' for d in detections)
+        has_tiger = any(d.get('is_tiger') for d in detections)
+        
+        if not detections:
+            spec_status = "skipped"
+            reid_status = "skipped"
+        elif not has_animal:
+            spec_status = "skipped"
+            reid_status = "skipped"
+        elif not has_tiger:
+            spec_status = "done"
+            reid_status = "skipped"
+        else:
+            spec_status = "done"
+            reid_status = "done" if (tiger_crops and top_cand_name is not None) else "failed"
+
+        strip_html = (
+            f'<div class="wid-pipeline-strip">'
+            f'  <span class="wid-strip-label">Pipeline:</span>'
+            f'  <span class="wid-strip-tag {loc_status}">1. Localize: {loc_status}</span>'
+            f'  <span class="wid-strip-tag {privacy_status}">2. Privacy: {privacy_status}</span>'
+            f'  <span class="wid-strip-tag {spec_status}">3. Species: {spec_status}</span>'
+            f'  <span class="wid-strip-tag {reid_status}">4. Re-ID: {reid_status}</span>'
+            f'</div>'
+        )
+
+        full_results_html = f"{strip_html}\n{reid_html}"
 
         elapsed_ms = (time.time() - start_time) * 1000
         log_inference_event(
@@ -358,20 +622,27 @@ def identify_tiger(image):
             duration_ms=elapsed_ms,
             detail=f"detections={len(detections)}, top_cand={top_cand_name}, sim={top_cand_score:.4f}"
         )
-        return summary_text, annotated_img, gallery_items
+        return summary_text, annotated_img, full_results_html, gallery_items
 
     except TimeoutError as te:
         elapsed_ms = (time.time() - start_time) * 1000
         logger.warning(f"Inference timed out after {elapsed_ms:.1f}ms: {te}")
-        return f"Request timed out: Inference exceeded {REQUEST_TIMEOUT_SECONDS}s limit.", None, []
-
-    except ValueError as ve:
-        logger.warning(f"Upload rejected by safety guard: {ve}")
-        return f"Upload rejected: {str(ve)}", None, []
+        return (
+            f"Request timed out: Inference exceeded {REQUEST_TIMEOUT_SECONDS}s limit. "
+            "Please try a smaller image or retry later.",
+            None, empty_html, []
+        )
 
     except Exception as e:
-        logger.error(f"Error during processing: {str(e)}")
-        return f"Error during processing: {str(e)}", None, []
+        # Internal error during inference: log full traceback, show friendly non-technical message
+        import traceback as _tb
+        logger.error(f"Internal error during inference pipeline: {e}\n{_tb.format_exc()}")
+        return (
+            "Something went wrong while processing this image. "
+            "Please try again, or try a different image.\n\n"
+            "If this keeps happening, check the server logs for details.",
+            None, empty_html, []
+        )
 
 
 # Backward compatibility alias
@@ -412,7 +683,7 @@ def get_pending_summary():
         sub_id = s.get("submission_id")
         t_name = s.get("tiger_name")
         t_date = s.get("created_at", "unknown")
-        lines.append(f"  • ID: {sub_id} | Name: {t_name} | Date: {t_date}")
+        lines.append(f"  ID: {sub_id} | Name: {t_name} | Date: {t_date}")
     return "\n".join(lines)
 
 
@@ -449,13 +720,13 @@ def get_tadoba_species_table():
 
     lines = [
         "VERIFIED TADOBA-ANDHARI FAUNA & MODEL CAPABILITY",
-        "═" * 70,
+        "=" * 70,
         "Verified against: ZSI Conservation Area Series (Vol 25), NTCA brief,",
         "BirdLife/KBA factsheet 18278, and Maharashtra Forest Dept checklist.",
         "Scores and capabilities computed directly from loaded model label set.",
-        "═" * 70,
+        "=" * 70,
         f"{'Common Name':28s} {'Scientific Name':26s} {'Model Can Name?':16s} {'Matched Label':18s}",
-        "─" * 90
+        "-" * 90
     ]
 
     for s in species_list:
@@ -471,358 +742,668 @@ def get_tadoba_species_table():
 # ── Batch Identification ──────────────────────────────────────────────────────
 
 def batch_identify(test_dir=TEST_DIR):
+    """Run batch ranking and return (html_results, csv_file_path)."""
     global extractor, matcher
 
     if matcher is None or not matcher.reference_features:
-        return "Load or build the reference database first."
+        empty = '<div class="wid-empty-state"><strong>No database loaded.</strong> Use Setup > Load Existing Database first.</div>'
+        return empty, None
 
     test_images = load_images_from_directory(test_dir)
     if not test_images:
-        return f"No test images found in {test_dir}"
+        empty = f'<div class="wid-empty-state"><strong>No test images found.</strong> Add images to {_esc(test_dir)}</div>'
+        return empty, None
 
-    results = (
-        f"BATCH RESULTS — {len(test_images)} images\n"
-        f"{'─'*50}\n"
-        f"Threshold: {SIMILARITY_THRESHOLD:.4f} ({THRESHOLD_LABEL})\n"
-        f"Note: {SIMILARITY_NOTE}\n\n"
-    )
-
+    rows = []
     for img_path in test_images:
         features = extractor.extract_features(img_path)
         if features is not None:
             best_match, sim_score, _ = matcher.find_match(features, threshold=SIMILARITY_THRESHOLD)
             if best_match is not None:
-                status = f"{OUTCOME_ABOVE_THRESHOLD}: {best_match}"
+                outcome = OUTCOME_ABOVE_THRESHOLD
+                candidate = best_match
             else:
                 top_cands = matcher.get_top_matches(features, top_k=1)
-                top_cand_name = top_cands[0][0] if top_cands else "None"
-                status = f"{OUTCOME_BELOW_THRESHOLD} (closest: {top_cand_name})"
+                candidate = top_cands[0][0] if top_cands else "None"
+                outcome = OUTCOME_BELOW_THRESHOLD
 
-            results += f"{os.path.basename(img_path)}\n"
-            results += f"  → {status}  ({SIMILARITY_LABEL}: {sim_score:.4f})\n\n"
+            rows.append({
+                "file": os.path.basename(img_path),
+                "candidate": candidate,
+                "score": sim_score,
+                "outcome": outcome,
+                "above": best_match is not None,
+            })
 
-    return results
+    html = build_batch_html(rows, len(test_images))
 
+    # Generate CSV for download
+    csv_buffer = io.StringIO()
+    writer = csv.writer(csv_buffer)
+    writer.writerow(["file", "best_candidate", "cosine_similarity", "outcome"])
+    for row in rows:
+        writer.writerow([row["file"], row["candidate"], f"{row['score']:.4f}", row["outcome"]])
 
-# ── CSS (No external font imports; uses native system fonts) ───────────────────
-css = """
-footer { display: none !important; }
-.built-with { display: none !important; }
-#svelte-announcer { display: none !important; }
-.gradio-container > .footer { display: none !important; }
+    csv_path = str(BASE_DIR / "batch_results.csv")
+    with open(csv_path, "w", encoding="utf-8", newline="") as f:
+        f.write(csv_buffer.getvalue())
 
-body, .gradio-container {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
-    background: #0e0e0e !important;
-    color: #d4d4d4 !important;
-}
+    return html, csv_path
 
-.header-block {
-    border-bottom: 1px solid #2a2a2a;
-    padding: 2rem 0 1.5rem 0;
-    margin-bottom: 1rem;
-}
-
-.header-block h1 {
-    font-family: Consolas, "Courier New", Courier, monospace !important;
-    font-size: 1.3rem !important;
-    font-weight: 500 !important;
-    letter-spacing: 0.12em !important;
-    color: #e8e8e8 !important;
-    text-transform: uppercase !important;
-    margin: 0 !important;
-}
-
-.tab-nav button {
-    font-family: Consolas, "Courier New", Courier, monospace !important;
-    font-size: 0.72rem !important;
-    letter-spacing: 0.1em !important;
-    text-transform: uppercase !important;
-    color: #555 !important;
-    background: transparent !important;
-    border: none !important;
-    border-bottom: 2px solid transparent !important;
-    padding: 0.6rem 1.2rem !important;
-    transition: color 0.2s, border-color 0.2s !important;
-}
-
-.tab-nav button.selected {
-    color: #d4d4d4 !important;
-    border-bottom: 2px solid #d4d4d4 !important;
-}
-
-.tab-nav button:hover { color: #999 !important; }
-
-button.primary {
-    font-family: Consolas, "Courier New", Courier, monospace !important;
-    font-size: 0.75rem !important;
-    letter-spacing: 0.1em !important;
-    text-transform: uppercase !important;
-    background: #1e1e1e !important;
-    color: #d4d4d4 !important;
-    border: 1px solid #333 !important;
-    border-radius: 2px !important;
-    padding: 0.6rem 1.4rem !important;
-    transition: background 0.2s, border-color 0.2s !important;
-    cursor: pointer !important;
-}
-
-button.primary:hover {
-    background: #2a2a2a !important;
-    border-color: #555 !important;
-}
-
-button.secondary {
-    font-family: Consolas, "Courier New", Courier, monospace !important;
-    font-size: 0.72rem !important;
-    letter-spacing: 0.1em !important;
-    text-transform: uppercase !important;
-    background: transparent !important;
-    color: #888 !important;
-    border: 1px solid #252525 !important;
-    border-radius: 2px !important;
-    padding: 0.6rem 1.4rem !important;
-    transition: all 0.2s !important;
-    cursor: pointer !important;
-}
-
-button.secondary:hover {
-    color: #aaa !important;
-    border-color: #3a3a3a !important;
-}
-
-textarea, .gr-textbox textarea {
-    font-family: Consolas, "Courier New", Courier, monospace !important;
-    font-size: 0.78rem !important;
-    background: #141414 !important;
-    border: 1px solid #222 !important;
-    border-radius: 2px !important;
-    color: #b0b0b0 !important;
-    line-height: 1.7 !important;
-}
-
-input[type="text"], .gr-textbox input {
-    font-family: Consolas, "Courier New", Courier, monospace !important;
-    font-size: 0.78rem !important;
-    background: #141414 !important;
-    border: 1px solid #222 !important;
-    border-radius: 2px !important;
-    color: #b0b0b0 !important;
-}
-
-.threshold-note {
-    font-family: Consolas, "Courier New", Courier, monospace;
-    font-size: 0.72rem;
-    color: #666;
-    letter-spacing: 0.05em;
-    margin: 0.3rem 0 1rem 0;
-}
-
-.disclaimer-banner {
-    font-family: Consolas, "Courier New", Courier, monospace;
-    font-size: 0.72rem;
-    background: #181818;
-    border-left: 3px solid #666;
-    padding: 0.5rem 0.8rem;
-    color: #aaa;
-    margin-bottom: 0.8rem;
-}
-
-.divider {
-    border: none;
-    border-top: 1px solid #1e1e1e;
-    margin: 1rem 0;
-}
-"""
 
 # ── Gradio Interface ──────────────────────────────────────────────────────────
-with gr.Blocks(title="Tiger Identification & Detection") as demo:
 
-    gr.HTML("""
-    <div class="header-block">
-        <h1>Tiger Detection & Re-Identification System</h1>
-    </div>
-    """)
+def get_sidebar_html():
+    """Return the full sidebar + mobile-header HTML shell.
 
-    # ── Setup ─────────────────────────────────────────────────────────────────
-    with gr.Tab("Setup"):
-        gr.Markdown("#### Database Management")
+    The sidebar contains the WILD-ID wordmark (with aria-label for the
+    JS letter-by-letter reveal), a subtitle, a live-system status dot,
+    9 navigation buttons with inline SVG line icons and edge-bar indicator,
+    and an honesty note at the bottom.
 
-        with gr.Row():
-            load_btn  = gr.Button("Load Existing Database (.npz)", variant="primary")
-            build_btn = gr.Button("Build Database from Images", variant="secondary")
+    No pill shapes, no fake metrics, no animation toward invented numbers.
+    Plain-text noscript fallback is included via aria-label on .wid-wordmark.
+    """
+    nav_pages = [
+        # (index, label, title, svg-path-d)
+        (0, "Overview",           "Overview",
+         "M3 12L12 3l9 9M5 10v9a1 1 0 001 1h4v-4h4v4h4a1 1 0 001-1V10"),
+        (1, "Identify",           "Identify",
+         "M21 21l-4.35-4.35M11 19a8 8 0 100-16 8 8 0 000 16"),
+        (2, "Batch",              "Batch",
+         "M4 6h16M4 10h16M4 14h10"),
+        (3, "Reference Gallery",  "Reference Gallery",
+         "M4 16l4-4 4 4 4-6 4 6M2 20h20M2 4h20"),
+        (4, "Tadoba Species",     "Tadoba Species",
+         "M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"),
+        (5, "Review Queue",       "Review Queue",
+         "M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z"),
+        (6, "Evaluation",         "Evaluation",
+         "M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"),
+        (7, "Database",           "Database",
+         "M4 7a4 4 0 018 0c0 2.21-1.79 4-4 4S4 9.21 4 7zm0 0c0 2.21 1.79 4 4 4 4.42 0 8-1.79 8-4M4 7v10M20 7v10M4 17c0 2.21 3.58 4 8 4s8-1.79 8-4M4 12c0 2.21 3.58 4 8 4s8-1.79 8-4"),
+        (8, "About",              "About",
+         "M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"),
+    ]
 
-        gr.HTML('<hr class="divider">')
-        setup_output = gr.Textbox(label="Status", lines=14)
+    nav_items_html = ""
+    for idx, label, title, path_d in nav_pages:
+        active_class = " active" if idx == 0 else ""
+        nav_items_html += (
+            f'<button class="wid-nav-item{active_class}" '
+            f'data-tab-index="{idx}" '
+            f'aria-label="{label}" '
+            f'title="{title}">'
+            f'<span class="wid-nav-icon" aria-hidden="true">'
+            f'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" '
+            f'stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">'
+            f'<path d="{path_d}"/></svg>'
+            f'</span>'
+            f'<span class="wid-nav-label">{label}</span>'
+            f'</button>\n'
+        )
 
-        load_btn.click(fn=load_existing_database, outputs=setup_output, concurrency_limit=1)
-        build_btn.click(fn=build_reference_database, outputs=setup_output, concurrency_limit=1)
+    return (
+        # ── Mobile Header (hidden on desktop/tablet, shown on phone) ──────────
+        '<div id="wid-mobile-header" role="banner">'
+        '  <div class="wid-mobile-bar">'
+        '    <button class="wid-hamburger-btn" id="wid-hamburger-btn" '
+        '      aria-label="Open navigation menu" aria-expanded="false">'
+        '      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" '
+        '        stroke="currentColor" stroke-width="2" stroke-linecap="round">'
+        '        <line x1="3" y1="6" x2="21" y2="6"/>'
+        '        <line x1="3" y1="12" x2="21" y2="12"/>'
+        '        <line x1="3" y1="18" x2="21" y2="18"/>'
+        '      </svg>'
+        '    </button>'
+        '    <div class="wid-mobile-brand">'
+        '      <span class="wid-mobile-wordmark">WILD-ID</span>'
+        '      <span class="wid-mobile-sep">/</span>'
+        '      <span class="wid-mobile-page-title" id="wid-mobile-page-title">Overview</span>'
+        '    </div>'
+        '  </div>'
+        '</div>'
 
-        gr.HTML('<hr class="divider">')
-        gr.HTML('<p class="threshold-note">Delete a tiger — moves folder to trash/ after explicit confirmation</p>')
-        with gr.Row():
-            delete_name_input = gr.Textbox(
-                label="Tiger Name / ID to Delete",
-                placeholder="e.g.  tiger_030",
-                scale=2
+        # ── Drawer Backdrop (mobile only) ─────────────────────────────────────
+        '<div id="wid-drawer-backdrop"></div>'
+
+        # ── Left 232px Sidebar (self-contained; no open div trick) ───────────
+        '<nav id="wid-sidebar" aria-label="WILD-ID navigation">'
+
+        # Brand
+        '  <div class="wid-brand-wrap">'
+        '    <p class="wid-wordmark" aria-label="WILD-ID">WILD-ID</p>'
+        '    <p class="wid-subtitle">Individual tiger re-identification</p>'
+        '    <div class="wid-status-badge">'
+        '      <span class="wid-status-dot" aria-hidden="true"></span>'
+        '      <span id="wid-status-text"></span>'
+        '    </div>'
+        '  </div>'
+
+        # Navigation list
+        f'  <div class="wid-nav-list" role="list">'
+        f'    <div class="wid-nav-indicator" aria-hidden="true"></div>'
+        f'    {nav_items_html}'
+        f'  </div>'
+
+        # Honesty footer
+        '  <div class="wid-honesty-sidebar">'
+        '    <strong>Note:</strong> Cosine similarity is a ranking signal, '
+        '    not a probability, confidence, or verified identity.'
+        '  </div>'
+
+        '</nav>'
+    )
+
+
+with gr.Blocks(
+    title="WILD-ID | Tiger Re-identification",
+    fill_width=True,
+) as demo:
+
+    # ── Shell: true flex-row using gr.Row so Gradio places children side by side
+    # scale=0 + min_width=232 on sidebar → fixed 232 px, no growth
+    # scale=1 + min_width=0 on content   → takes remaining width, never wraps
+    with gr.Row(elem_id="wid-shell", equal_height=False):
+
+        # ── Left 232px Sidebar column ──────────────────────────────────────────
+        with gr.Column(scale=0, min_width=232, elem_id="wid-sidebar-col"):
+            gr.HTML(value=get_sidebar_html(), elem_id="wid-shell-top")
+
+        # ── Content Pane column ────────────────────────────────────────────────
+        with gr.Column(scale=1, min_width=0, elem_id="wid-content-pane"):
+
+            header_html = gr.HTML(
+                value=get_db_status_html(),
+                elem_id="wid-header",
+                visible=False,
             )
-            confirm_delete_box = gr.Checkbox(
-                label="Confirm moving tiger to trash",
-                value=False,
-                scale=1
-            )
-            delete_btn = gr.Button("Delete Tiger", variant="secondary", scale=1)
-        delete_output = gr.Textbox(label="", lines=6, show_label=False)
 
-        delete_btn.click(
-            fn=delete_tiger,
-            inputs=[delete_name_input, confirm_delete_box],
-            outputs=delete_output,
-            concurrency_limit=1
-        )
+            # ── All 9 pages inside gr.Tabs (tab-nav hidden via CSS) ─────────
+            with gr.Tabs(elem_id="wid-main-tabs"):
 
-    # ── Identify & Detect ─────────────────────────────────────────────────────
-    with gr.Tab("Detect & Identify"):
-        gr.Markdown("#### Animal Localization, Privacy Suppression & Candidate Ranking")
-        gr.HTML(
-            f'<div class="disclaimer-banner">'
-            f'<strong>Pipeline Stages:</strong> 1. Localizer (SSDLite320) &rarr; 2. Privacy Check (People suppressed) &rarr; 3. Species Verifier (MobileNetV3) &rarr; 4. Tiger Re-ID.<br>'
-            f'<strong>Cosine similarity threshold:</strong> {SIMILARITY_THRESHOLD:.2f} ({THRESHOLD_LABEL}). Detection scores are ranking heuristics, not probabilities.<br>'
-            f'<em>{SIMILARITY_NOTE}</em>'
-            f'</div>'
-        )
+                # ── 0: Overview ──────────────────────────────────────────────────
+                with gr.Tab("Overview", elem_id="wid-tab-overview"):
+                    gr.HTML(
+                        '<div class="wid-overview-grid">'
+                        '  <div class="wid-overview-card">'
+                        '    <div class="wid-card-label">Pipeline</div>'
+                        '    <div class="wid-card-value">4-stage</div>'
+                        '    <div class="wid-card-sub">Localize → Privacy → Species → Re-ID</div>'
+                        '  </div>'
+                        '  <div class="wid-overview-card">'
+                        '    <div class="wid-card-label">Similarity metric</div>'
+                        '    <div class="wid-card-value">Cosine</div>'
+                        '    <div class="wid-card-sub">Ranking signal only — not a probability</div>'
+                        '  </div>'
+                        '  <div class="wid-overview-card">'
+                        '    <div class="wid-card-label">Re-ID backbone</div>'
+                        '    <div class="wid-card-value">ViT-Base</div>'
+                        '    <div class="wid-card-sub">128-dim embedding, patch16_224</div>'
+                        '  </div>'
+                        '  <div class="wid-overview-card">'
+                        '    <div class="wid-card-label">Localizer</div>'
+                        '    <div class="wid-card-value">SSDLite320</div>'
+                        '    <div class="wid-card-sub">MobileNetV3 backbone — COCO</div>'
+                        '  </div>'
+                        '</div>'
+                    )
+                    gr.HTML(
+                        f'<div class="wid-note">'
+                        f'<strong>Honesty reminder:</strong> '
+                        f'{_esc(SIMILARITY_NOTE)} '
+                        f'Threshold is currently set to <code>{SIMILARITY_THRESHOLD:.2f}</code> '
+                        f'({_esc(THRESHOLD_LABEL)}). Results require expert review before any '
+                        f'conservation decision.'
+                        f'</div>'
+                    )
+                    gr.Markdown(
+                        "#### Pipeline summary\n\n"
+                        "1. **Localizer** — SSDLite320 finds animal bounding boxes. "
+                        "People detections are suppressed and never stored.\n"
+                        "2. **Species verifier** — MobileNetV3-Small classifies the crop. "
+                        "Non-tiger species are skipped.\n"
+                        "3. **Re-ID embedding** — ViT-Base maps the tiger crop to a "
+                        "128-dimensional unit vector.\n"
+                        "4. **Ranking** — Cosine similarity against the reference database "
+                        "produces a ranked candidate list.\n\n"
+                        "Use the **Identify** page for single images, **Batch** for the full "
+                        "test directory, and **Database** to load or rebuild the reference store."
+                    )
 
-        with gr.Row():
-            with gr.Column(scale=1):
-                input_image  = gr.Image(label="Camera Trap Image", type="pil")
-                identify_btn = gr.Button("Detect & Rank Candidates", variant="primary")
-                detection_annotated_img = gr.Image(label="Detections (Boxes & Heuristic Scores)", type="pil")
-            with gr.Column(scale=1):
-                output_text  = gr.Textbox(label="Detection & Identification Report", lines=18)
+                # ── 1: Identify ──────────────────────────────────────────────────
+                with gr.Tab("Identify", elem_id="wid-tab-identify"):
+                    gr.Markdown("#### Detection and candidate ranking")
+                    gr.HTML(
+                        f'<div class="wid-note">'
+                        f'<strong>Pipeline:</strong> '
+                        f'Localizer (SSDLite320) &rarr; Privacy check (people suppressed) &rarr; '
+                        f'Species verifier (MobileNetV3) &rarr; Tiger re-ID (ViT-Base).<br>'
+                        f'<strong>{_esc(SIMILARITY_LABEL)} threshold:</strong> '
+                        f'{SIMILARITY_THRESHOLD:.2f} ({_esc(THRESHOLD_LABEL)}). '
+                        f'Detection scores are ranking heuristics, not probabilities.<br>'
+                        f'<em>{_esc(SIMILARITY_NOTE)}</em>'
+                        f'</div>'
+                    )
 
-        gr.HTML('<hr class="divider">')
-        gr.Markdown("#### Top 5 Candidate Reference Images (Verified Tiger Only)")
-        reference_gallery = gr.Gallery(label="Reference images of top candidates", columns=5, height="auto")
+                    with gr.Row():
+                        with gr.Column(scale=1, elem_classes=["wid-query-col"]):
+                            input_image = gr.Image(
+                                label="Camera trap image",
+                                type="pil",
+                                elem_id="wid-query-image",
+                            )
+                            identify_btn = gr.Button(
+                                "Identify",
+                                variant="primary",
+                                elem_id="wid-identify-btn",
+                            )
+                            detection_annotated_img = gr.Image(
+                                label="Detections (boxes and heuristic scores)",
+                                type="pil",
+                                elem_id="wid-annotated-image",
+                            )
 
-        gr.HTML('<hr class="divider">')
-        gr.Markdown("#### Submit Image to Pending Queue")
-        gr.HTML('<p class="threshold-note">Submit newly observed tiger image to pending queue. Requires reviewer confirmation before it affects matching.</p>')
-        with gr.Row():
-            tiger_name_input = gr.Textbox(
-                label="Tiger Name / ID",
-                placeholder="e.g. tiger_275",
-                scale=2
-            )
-            provenance_input = gr.Textbox(
-                label="Provenance / Notes",
-                placeholder="Camera trap ID, location, timestamp",
-                scale=2
-            )
-            add_btn = gr.Button("Submit to Pending Queue", variant="secondary", scale=1)
-        add_status = gr.Textbox(label="", lines=4, show_label=False)
+                        with gr.Column(scale=1, elem_classes=["wid-results-col"]):
+                            reid_results_html = gr.HTML(
+                                value='<div class="wid-empty-state"><strong>No results yet.</strong> Upload an image and press Identify.</div>',
+                                label="Re-identification ranking",
+                                elem_id="wid-reid-results",
+                            )
+                            output_text = gr.Textbox(
+                                label="Detection report",
+                                lines=12,
+                                elem_id="wid-detection-report",
+                                buttons=["copy"],
+                            )
 
-        identify_btn.click(
-            fn=identify_tiger,
-            inputs=input_image,
-            outputs=[output_text, detection_annotated_img, reference_gallery],
-            concurrency_limit=1,
-            api_name="identify_tiger"
-        )
+                    gr.HTML('<hr class="wid-divider">')
+                    gr.Markdown("#### Top candidate reference images")
+                    gr.HTML(
+                        '<p class="wid-threshold-note">'
+                        'Reference images for the highest-ranked candidates from the database. '
+                        'Displayed only when a verified tiger crop is found.'
+                        '</p>'
+                    )
+                    reference_gallery = gr.Gallery(
+                        label="Reference images of top candidates",
+                        columns=5,
+                        height="auto",
+                        elem_id="wid-ref-gallery",
+                        elem_classes=["wid-gallery"],
+                    )
 
-        add_btn.click(
-            fn=add_new_tiger,
-            inputs=[tiger_name_input, input_image, provenance_input],
-            outputs=add_status,
-            concurrency_limit=1
-        )
+                    gr.HTML('<hr class="wid-divider">')
+                    gr.Markdown("#### Submit image to pending queue")
+                    gr.HTML(
+                        '<p class="wid-threshold-note">'
+                        'Submit a newly observed image to the pending queue. '
+                        'Requires reviewer confirmation before it affects matching.'
+                        '</p>'
+                    )
+                    with gr.Row():
+                        tiger_name_input = gr.Textbox(
+                            label="Tiger name / ID",
+                            placeholder="e.g. tiger_275",
+                            scale=2,
+                            elem_id="wid-submit-name",
+                        )
+                        provenance_input = gr.Textbox(
+                            label="Provenance / notes",
+                            placeholder="Camera trap ID, location, timestamp",
+                            scale=2,
+                            elem_id="wid-submit-provenance",
+                        )
+                        add_btn = gr.Button(
+                            "Submit to pending queue",
+                            variant="secondary",
+                            scale=1,
+                            elem_id="wid-submit-btn",
+                        )
+                    add_status = gr.Textbox(
+                        label="",
+                        lines=4,
+                        show_label=False,
+                        elem_id="wid-submit-status",
+                    )
 
-    # ── Tadoba Species Reference ──────────────────────────────────────────────
-    with gr.Tab("Tadoba Species"):
-        gr.Markdown("#### Verified Tadoba-Andhari Species & Model Capabilities")
-        gr.Markdown(
-            "Lists verified species from ZSI Conservation Area Series (Vol 25), NTCA brief, "
-            "BirdLife/KBA factsheet 18278, and Maharashtra Forest Department checklist. "
-            "Model naming capability is evaluated directly from the model's verified label set."
-        )
-        refresh_species_btn = gr.Button("Inspect Tadoba Species & Capabilities", variant="secondary")
-        species_output = gr.Textbox(label="Verified Species and Model Capabilities", lines=24)
-        refresh_species_btn.click(
-            fn=get_tadoba_species_table,
-            outputs=species_output,
-            concurrency_limit=1
-        )
+                    identify_btn.click(
+                        fn=identify_tiger,
+                        inputs=input_image,
+                        outputs=[output_text, detection_annotated_img, reid_results_html, reference_gallery],
+                        concurrency_limit=1,
+                        api_name="identify_tiger",
+                    )
 
-    # ── Pending Submissions Review ────────────────────────────────────────────
-    with gr.Tab("Review Pending"):
-        gr.Markdown("#### Pending Submissions Review Queue")
-        gr.Markdown("Submissions do not affect matching until confirmed by a reviewer.")
+                    add_btn.click(
+                        fn=add_new_tiger,
+                        inputs=[tiger_name_input, input_image, provenance_input],
+                        outputs=add_status,
+                        concurrency_limit=1,
+                    )
 
-        refresh_pending_btn = gr.Button("Refresh Pending List", variant="secondary")
-        pending_list_output = gr.Textbox(label="Pending Submissions", lines=8)
-        refresh_pending_btn.click(
-            fn=get_pending_summary,
-            outputs=pending_list_output,
-            concurrency_limit=1
-        )
+                # ── 2: Batch ─────────────────────────────────────────────────────
+                with gr.Tab("Batch", elem_id="wid-tab-batch"):
+                    gr.Markdown("#### Batch candidate ranking")
+                    gr.HTML(
+                        '<p class="wid-threshold-note">'
+                        f'Ranks all test images in data/test/ against the reference database using {_esc(SIMILARITY_LABEL.lower())}.'
+                        '</p>'
+                    )
 
-        gr.HTML('<hr class="divider">')
-        with gr.Row():
-            review_sub_id = gr.Textbox(label="Submission ID", placeholder="sub_...", scale=2)
-            reviewer_note = gr.Textbox(label="Reviewer Note", placeholder="Reason / notes", scale=2)
-        with gr.Row():
-            approve_btn = gr.Button("Approve (Add to Reference DB)", variant="primary")
-            reject_btn  = gr.Button("Reject (Move to Trash)", variant="secondary")
+                    batch_btn = gr.Button(
+                        "Run batch ranking",
+                        variant="primary",
+                        elem_id="wid-batch-btn",
+                    )
+                    batch_output_html = gr.HTML(
+                        value='<div class="wid-empty-state"><strong>No batch results.</strong> Press "Run batch ranking" to process all images in data/test/.</div>',
+                        label="Batch results",
+                        elem_id="wid-batch-output",
+                    )
+                    batch_download = gr.File(
+                        label="Download results as CSV",
+                        elem_id="wid-batch-download",
+                        visible=True,
+                    )
 
-        review_status = gr.Textbox(label="Review Outcome", lines=4)
+                    batch_btn.click(
+                        fn=batch_identify,
+                        outputs=[batch_output_html, batch_download],
+                        concurrency_limit=1,
+                    )
 
-        approve_btn.click(
-            fn=lambda sid, note: handle_review_submission(sid, "approve", note),
-            inputs=[review_sub_id, reviewer_note],
-            outputs=review_status,
-            concurrency_limit=1
-        )
-        reject_btn.click(
-            fn=lambda sid, note: handle_review_submission(sid, "reject", note),
-            inputs=[review_sub_id, reviewer_note],
-            outputs=review_status,
-            concurrency_limit=1
-        )
+                # ── 3: Reference Gallery (placeholder) ───────────────────────────
+                with gr.Tab("Reference Gallery", elem_id="wid-tab-refgallery"):
+                    gr.HTML(
+                        '<div class="wid-placeholder-card">'
+                        '  <span class="wid-placeholder-badge">[ Under Construction ]</span>'
+                        '  <h2 class="wid-placeholder-title">Reference Gallery</h2>'
+                        '  <p class="wid-placeholder-desc">'
+                        '    Will display all individuals from the loaded reference database as a '
+                        '    browsable image grid. Each tile will show the tiger identity label, '
+                        '    the number of reference images, and a thumbnail.'
+                        '    Load the database on the <strong>Database</strong> page first.'
+                        '  </p>'
+                        '  <div class="wid-placeholder-grid-preview">'
+                        '    <div class="wid-placeholder-item-box"><span>tiger_001</span><small>3 images</small></div>'
+                        '    <div class="wid-placeholder-item-box"><span>tiger_002</span><small>2 images</small></div>'
+                        '    <div class="wid-placeholder-item-box"><span>tiger_003</span><small>5 images</small></div>'
+                        '    <div class="wid-placeholder-item-box"><span>&hellip;</span><small>placeholder</small></div>'
+                        '  </div>'
+                        '  <p class="wid-placeholder-note">'
+                        '    This page is not yet functional. No data is shown here.'
+                        '  </p>'
+                        '</div>'
+                    )
 
-    # ── Batch ─────────────────────────────────────────────────────────────────
-    with gr.Tab("Batch"):
-        gr.Markdown("#### Batch Candidate Ranking")
-        gr.Markdown("Ranks all test images in `data/test/` against the reference database using cosine similarity.")
-        batch_btn    = gr.Button("Run Batch Ranking", variant="primary")
-        batch_output = gr.Textbox(label="Batch Results", lines=22)
-        batch_btn.click(
-            fn=batch_identify,
-            outputs=batch_output,
-            concurrency_limit=1
-        )
+                # ── 4: Tadoba Species ─────────────────────────────────────────────
+                with gr.Tab("Tadoba Species", elem_id="wid-tab-species"):
+                    gr.Markdown("#### Verified Tadoba-Andhari species and model capabilities")
+                    gr.Markdown(
+                        "Lists verified species from ZSI Conservation Area Series (Vol 25), NTCA brief, "
+                        "BirdLife/KBA factsheet 18278, and Maharashtra Forest Department checklist. "
+                        "Model naming capability is evaluated directly from the model's verified label set."
+                    )
+                    refresh_species_btn = gr.Button(
+                        "Inspect Tadoba species and capabilities",
+                        variant="secondary",
+                        elem_id="wid-species-btn",
+                    )
+                    species_output = gr.Textbox(
+                        label="Verified species and model capabilities",
+                        lines=24,
+                        elem_id="wid-species-output",
+                        buttons=["copy"],
+                    )
+                    refresh_species_btn.click(
+                        fn=get_tadoba_species_table,
+                        outputs=species_output,
+                        concurrency_limit=1,
+                    )
 
-    # ── Info ──────────────────────────────────────────────────────────────────
-    with gr.Tab("Info"):
-        gr.Markdown(f"""
-#### About
+                # ── 5: Review Queue ──────────────────────────────────────────────
+                with gr.Tab("Review Queue", elem_id="wid-tab-review"):
+                    gr.Markdown("#### Pending submissions review queue")
+                    gr.HTML(
+                        '<p class="wid-threshold-note">'
+                        'Submissions do not affect matching until confirmed by a reviewer.'
+                        '</p>'
+                    )
 
-This system couples an animal localization and species verification stage with individual tiger re-identification.
+                    refresh_pending_btn = gr.Button(
+                        "Refresh pending list",
+                        variant="secondary",
+                        elem_id="wid-refresh-pending-btn",
+                    )
+                    pending_list_output = gr.Textbox(
+                        label="Pending submissions",
+                        lines=8,
+                        elem_id="wid-pending-output",
+                    )
+                    refresh_pending_btn.click(
+                        fn=get_pending_summary,
+                        outputs=pending_list_output,
+                        concurrency_limit=1,
+                    )
 
-#### Important Honesty Guidelines
+                    gr.HTML('<hr class="wid-divider">')
+                    with gr.Row():
+                        review_sub_id = gr.Textbox(
+                            label="Submission ID",
+                            placeholder="sub_...",
+                            scale=2,
+                            elem_id="wid-review-sub-id",
+                        )
+                        reviewer_note = gr.Textbox(
+                            label="Reviewer note",
+                            placeholder="Reason / notes",
+                            scale=2,
+                            elem_id="wid-reviewer-note",
+                        )
+                    with gr.Row():
+                        approve_btn = gr.Button(
+                            "Approve (add to reference database)",
+                            variant="primary",
+                            elem_id="wid-approve-btn",
+                        )
+                        reject_btn = gr.Button(
+                            "Reject (move to trash)",
+                            variant="secondary",
+                            elem_id="wid-reject-btn",
+                        )
 
-- **Cosine similarity** is a ranking signal, not a probability, confidence, or verified individual identity.
-- {SIMILARITY_NOTE}
-- Threshold is currently set to `{SIMILARITY_THRESHOLD:.2f}` ({THRESHOLD_LABEL}).
-- Scores produced by localizers and classifiers are ranking heuristics, not calibrated probabilities.
+                    review_status = gr.Textbox(
+                        label="Review outcome",
+                        lines=4,
+                        elem_id="wid-review-status",
+                    )
 
-#### Detection & Verification Architecture
+                    approve_btn.click(
+                        fn=lambda sid, note: handle_review_submission(sid, "approve", note),
+                        inputs=[review_sub_id, reviewer_note],
+                        outputs=review_status,
+                        concurrency_limit=1,
+                    )
+                    reject_btn.click(
+                        fn=lambda sid, note: handle_review_submission(sid, "reject", note),
+                        inputs=[review_sub_id, reviewer_note],
+                        outputs=review_status,
+                        concurrency_limit=1,
+                    )
 
-- **Localizer** — SSDLite320-MobileNetV3 (BSD 3-Clause, COCO), ~140ms on CPU
-- **Privacy Rule** — People are detected and suppressed immediately; never cropped, stored, or re-identified.
-- **Species Classifier** — MobileNetV3-Small (ImageNet-1k), ~24ms on CPU. Re-ID runs strictly on verified tiger crops.
-- **Re-ID Embedding** — ViT-Base (vit_base_patch16_224), 128-dimensional embedding
-- **Database Storage** — Atomic `.npz` vector matrix + companion JSON metadata
-- **Concurrency & Safety** — Gradio queue (max_size={QUEUE_MAX_SIZE}, concurrency={DEFAULT_CONCURRENCY_LIMIT}), max upload {MAX_UPLOAD_SIZE_MB}MB, {MAX_PIXEL_COUNT}px limit.
-        """)
+                # ── 6: Evaluation (placeholder) ──────────────────────────────────
+                with gr.Tab("Evaluation", elem_id="wid-tab-evaluation"):
+                    gr.HTML(
+                        '<div class="wid-honesty-banner">'
+                        '  <strong>Standing rule:</strong> No accuracy claims are shown here. '
+                        '  Metrics will only appear after empirical evaluation on a documented '
+                        '  dataset with published sample sizes and method. Cosine similarity '
+                        '  is a ranking signal, not a probability or verified identity.'
+                        '</div>'
+                        '<div class="wid-placeholder-card">'
+                        '  <span class="wid-placeholder-badge">[ Under Construction ]</span>'
+                        '  <h2 class="wid-placeholder-title">Evaluation</h2>'
+                        '  <p class="wid-placeholder-desc">'
+                        '    Will display empirically measured re-identification metrics '
+                        '    (Rank-1, mAP) once evaluated on a documented dataset. '
+                        '    No values are displayed here until that evaluation is complete '
+                        '    and the method and sample size are on record.'
+                        '  </p>'
+                        '  <div class="wid-placeholder-metrics-preview">'
+                        '    <div class="wid-placeholder-metric">'
+                        '      <strong>&mdash;</strong><span>Rank-1</span><small>not yet measured</small>'
+                        '    </div>'
+                        '    <div class="wid-placeholder-metric">'
+                        '      <strong>&mdash;</strong><span>mAP</span><small>not yet measured</small>'
+                        '    </div>'
+                        '    <div class="wid-placeholder-metric">'
+                        '      <strong>&mdash;</strong><span>Dataset</span><small>not yet documented</small>'
+                        '    </div>'
+                        '  </div>'
+                        '  <p class="wid-placeholder-note">'
+                        '    This page is not yet functional. No data is shown here.'
+                        '  </p>'
+                        '</div>'
+                    )
+
+                # ── 7: Database (Setup + Delete) ─────────────────────────────────
+                with gr.Tab("Database", elem_id="wid-tab-setup"):
+                    gr.Markdown("#### Database management")
+                    gr.HTML(
+                        '<p class="wid-threshold-note">'
+                        'Load the existing .npz database, or rebuild from reference images in data/reference/.'
+                        '</p>'
+                    )
+
+                    with gr.Row():
+                        load_btn = gr.Button(
+                            "Load existing database",
+                            variant="primary",
+                            elem_id="wid-load-btn",
+                        )
+                        build_btn = gr.Button(
+                            "Build database from images",
+                            variant="secondary",
+                            elem_id="wid-build-btn",
+                        )
+
+                    setup_output = gr.Textbox(
+                        label="STATUS",
+                        lines=14,
+                        elem_id="wid-setup-output",
+                        buttons=["copy"],
+                    )
+
+                    load_btn.click(
+                        fn=load_existing_database,
+                        outputs=[setup_output, header_html],
+                        concurrency_limit=1,
+                    )
+                    build_btn.click(
+                        fn=build_reference_database,
+                        outputs=[setup_output, header_html],
+                        concurrency_limit=1,
+                    )
+
+                    # ── Destructive zone ──────────────────────────────────────────
+                    gr.HTML('<hr class="wid-divider">')
+                    gr.HTML(
+                        '<div class="wid-destructive-zone">'
+                        '<p class="wid-destructive-label">Destructive action</p>'
+                        '<p class="wid-threshold-note" style="margin-top:0;">'
+                        'Moves an individual folder to trash/. The database is updated immediately. '
+                        'This cannot be undone from the UI.'
+                        '</p>'
+                    )
+                    with gr.Row():
+                        delete_name_input = gr.Textbox(
+                            label="Tiger name / ID to delete",
+                            placeholder="e.g.  tiger_030",
+                            scale=2,
+                            elem_id="wid-delete-name",
+                        )
+                        confirm_delete_box = gr.Checkbox(
+                            label="Confirm moving tiger to trash",
+                            value=False,
+                            scale=1,
+                            elem_id="wid-delete-confirm",
+                        )
+                        delete_btn = gr.Button(
+                            "Delete tiger",
+                            variant="secondary",
+                            scale=1,
+                            elem_id="wid-delete-btn",
+                        )
+                    delete_output = gr.Textbox(
+                        label="",
+                        lines=6,
+                        show_label=False,
+                        elem_id="wid-delete-output",
+                    )
+                    gr.HTML('</div>')  # close destructive zone
+
+                    delete_btn.click(
+                        fn=delete_tiger,
+                        inputs=[delete_name_input, confirm_delete_box],
+                        outputs=delete_output,
+                        concurrency_limit=1,
+                    )
+
+                # ── 8: About ─────────────────────────────────────────────────────
+                with gr.Tab("About", elem_id="wid-tab-info"):
+                    gr.Markdown(f"""
+    #### Method
+
+    This system couples animal localization and species verification with individual tiger
+    re-identification. A camera-trap image passes through four stages before any identity
+    ranking is produced.
+
+    #### Honesty guidelines
+
+    - **{SIMILARITY_LABEL}** is a ranking signal, not a probability, confidence, or verified individual identity.
+    - {SIMILARITY_NOTE}
+    - Threshold is currently set to `{SIMILARITY_THRESHOLD:.2f}` ({THRESHOLD_LABEL}).
+    - Scores produced by localizers and classifiers are ranking heuristics, not calibrated probabilities.
+
+    #### Architecture
+
+    | Stage | Model | Notes |
+    |---|---|---|
+    | Localizer | SSDLite320-MobileNetV3 | BSD 3-Clause, COCO |
+    | Privacy rule | (built-in) | People detected and suppressed; never cropped, stored, or re-identified |
+    | Species classifier | MobileNetV3-Small | ImageNet-1k |
+    | Re-ID embedding | ViT-Base (vit_base_patch16_224) | 128-dimensional embedding |
+
+    #### Database
+
+    - Storage: atomic `.npz` vector matrix + companion JSON metadata.
+    - Concurrency: Gradio queue (max_size={QUEUE_MAX_SIZE}, concurrency={DEFAULT_CONCURRENCY_LIMIT}), max upload {MAX_UPLOAD_SIZE_MB} MB, {MAX_PIXEL_COUNT:,} px limit.
+
+    #### Limitations
+
+    - Re-identification operates on cosine similarity ranking only. No accuracy claims are made without empirical evaluation on a documented dataset.
+    - The threshold ({SIMILARITY_THRESHOLD:.2f}) is a configurable heuristic, not validated.
+    - Results require expert review before any conservation decision.
+
+    #### Licence and attribution
+
+    See THIRD_PARTY_NOTICES.md in the project root for model licences and data attribution.
+                    """)
+
+        # ── Close main layout ─────────────────────────────────────────────────────
+    # wid-shell-bottom removed: gr.Row closes automatically via Python context manager
+
+    # ── Footer ────────────────────────────────────────────────────────────────
+    gr.HTML(
+        '<div id="wid-footer">'
+        '<p>WILD-ID &mdash; Individual tiger re-identification &nbsp;|&nbsp; '
+        '<a href="https://github.com/Adityathere06/Wild-ID" '
+        'target="_blank" rel="noopener noreferrer">Repository</a></p>'
+        '</div>'
+    )
+
+
 
 # Configure queue with bounded size and default concurrency
 demo.queue(
@@ -846,10 +1427,17 @@ if __name__ == "__main__":
         f"max_file_size={MAX_UPLOAD_SIZE_MB}mb, timeout={REQUEST_TIMEOUT_SECONDS}s)"
     )
 
+    js_code = Path(JS_PATH).read_text(encoding="utf-8") if Path(JS_PATH).exists() else None
+
     demo.launch(
         share=False,
         server_name=args.host,
         server_port=args.port,
         max_file_size=f"{MAX_UPLOAD_SIZE_MB}mb",
-        show_error=True
+        show_error=True,
+        favicon_path=FAVICON_PATH,
+        css_paths=[CSS_PATH],
+        js=js_code,
+        allowed_paths=[str(BASE_DIR / "static")],
+        footer_links=[],
     )

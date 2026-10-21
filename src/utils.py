@@ -82,6 +82,11 @@ def validate_identity_name(name: str, base_dir: str = REFERENCE_DIR) -> tuple[bo
     return True, sanitized
 
 
+class ImageValidationError(ValueError):
+    """Raised when an uploaded or input image fails safety validation (format, size, bomb)."""
+    pass
+
+
 def safe_process_image(
     image_input,
     max_size_mb: int = MAX_UPLOAD_SIZE_MB,
@@ -102,7 +107,7 @@ def safe_process_image(
         (sanitized_image: PIL.Image.Image, metadata: dict)
 
     Raises:
-        ValueError: If size or pixel limit exceeded, or invalid format.
+        ImageValidationError: If size or pixel limit exceeded, or invalid format.
     """
     size_bytes = -1
     filename = ""
@@ -114,7 +119,7 @@ def safe_process_image(
 
         filename = path.name
         if path.suffix.lower() not in ALLOWED_IMAGE_EXTENSIONS:
-            raise ValueError(
+            raise ImageValidationError(
                 f"Unsupported image file extension: '{path.suffix}'. "
                 f"Allowed extensions: {sorted(list(ALLOWED_IMAGE_EXTENSIONS))}"
             )
@@ -122,7 +127,7 @@ def safe_process_image(
         size_bytes = path.stat().st_size
         max_bytes = max_size_mb * 1024 * 1024
         if size_bytes > max_bytes:
-            raise ValueError(
+            raise ImageValidationError(
                 f"Image file size ({size_bytes / (1024*1024):.2f} MB) exceeds "
                 f"maximum upload limit of {max_size_mb} MB."
             )
@@ -131,34 +136,34 @@ def safe_process_image(
             with Image.open(path) as img:
                 total_pixels = img.width * img.height
                 if total_pixels > max_pixels:
-                    raise ValueError(
+                    raise ImageValidationError(
                         f"Image pixel count ({total_pixels}) exceeds maximum safety limit "
                         f"of {max_pixels} pixels (decompression bomb protection)."
                     )
                 rgb_img = img.convert('RGB')
         except Image.DecompressionBombError as e:
-            raise ValueError(f"Decompression bomb detected and rejected: {e}")
+            raise ImageValidationError(f"Decompression bomb detected and rejected: {e}")
         except Exception as e:
-            if isinstance(e, ValueError):
+            if isinstance(e, ImageValidationError):
                 raise
-            raise ValueError(f"Failed to decode image file: {e}")
+            raise ImageValidationError(f"Failed to decode image file: {e}")
 
     elif isinstance(image_input, Image.Image):
         total_pixels = image_input.width * image_input.height
         if total_pixels > max_pixels:
-            raise ValueError(
+            raise ImageValidationError(
                 f"Image pixel count ({total_pixels}) exceeds maximum safety limit "
                 f"of {max_pixels} pixels (decompression bomb protection)."
             )
         try:
             rgb_img = image_input.convert('RGB')
         except Image.DecompressionBombError as e:
-            raise ValueError(f"Decompression bomb detected and rejected: {e}")
+            raise ImageValidationError(f"Decompression bomb detected and rejected: {e}")
         except Exception as e:
-            raise ValueError(f"Failed to process image: {e}")
+            raise ImageValidationError(f"Failed to process image: {e}")
 
     else:
-        raise ValueError(f"Unsupported image input type: {type(image_input)}")
+        raise ImageValidationError(f"Unsupported image input type: {type(image_input)}")
 
     orig_w, orig_h = rgb_img.size
     total_pixels = orig_w * orig_h

@@ -20,3 +20,12 @@
 ## Process
 - Inspect before editing. Keep working features. Make small commits per task.
 - After each task, report files changed, tests run with real output, and anything not run and why.
+
+## Motion rules
+- Animation must reflect real state only. Never animate toward invented numbers, never show fake progress, scanning, or live activity.
+- Never hide or animate away the honesty notes (similarity is not verified identity; detector scores are not probabilities).
+- Respect prefers-reduced-motion everywhere. Animate only transform and opacity.
+- Disable decorative backgrounds and 3D while the camera is on and on /detect.
+- Use only free components from Magic UI, SmoothUI, and Unlumen UI. No paid, Pro, or login-gated code. Do not use RetroUI.
+- Verify any component exists in its docs before using it. Never invent component names or APIs.
+- Record every added component's source URL and licence in THIRD_PARTY_NOTICES.md. Pin exact versions and run npm audit.

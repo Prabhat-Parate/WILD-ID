@@ -266,3 +266,100 @@ def test_bounded_detections_and_score_interpretation(detector):
     test_img = Image.new("RGB", (320, 320))
     detections = detector.detect(test_img, max_detections=3)
     assert len(detections) <= 3
+
+
+# ── Test 7: Webcam Coordinate Normalization & Error Separation Regression ──────
+
+def test_webcam_box_coordinates_and_drawing_regression():
+    """
+    Regression test for the webcam photo bug:
+    A detection on a non-320x320 frame (e.g. 640x480 webcam) with reversed or
+    out-of-bounds coordinates must be normalized and clipped without raising
+    PIL's 'ValueError: x1 must be greater than or equal to x0'.
+    """
+    mock_detector = MagicMock()
+    # Detection with reversed x coordinates (x1 > x2) and coordinates extending beyond 640x480
+    mock_detector.detect.return_value = [
+        {
+            'box': [500.0, 100.0, 200.0, 350.0],  # reversed x: 500 > 200
+            'score': 0.85,
+            'raw_label': 'person',
+            'category': 'person'
+        },
+        {
+            'box': [10.0, 450.0, 100.0, 50.0],   # reversed y: 450 > 50
+            'score': 0.72,
+            'raw_label': 'cat',
+            'category': 'animal'
+        },
+        {
+            'box': [50.0, 50.0, 50.0, 50.0],     # zero-area: skipped
+            'score': 0.60,
+            'raw_label': 'dog',
+            'category': 'animal'
+        }
+    ]
+
+    mock_classifier = MagicMock()
+    mock_classifier.classify_crop.return_value = {
+        'label': 'domestic cat',
+        'score': 0.80,
+        'is_tiger': False,
+        'class_index': 282
+    }
+
+    webcam_frame = Image.new("RGB", (640, 480), color=(100, 120, 140))
+    # Should execute without any ValueError
+    result = process_frame(
+        image=webcam_frame,
+        detector=mock_detector,
+        classifier=mock_classifier
+    )
+
+    assert result['annotated_image'] is not None
+    assert result['annotated_image'].size == (640, 480)
+    # Zero-area box was skipped, 2 valid boxes processed
+    assert len(result['detections']) == 2
+    # Verify coordinates were normalized so x1 < x2 and y1 < y2
+    for det in result['detections']:
+        bx1, by1, bx2, by2 = det['box']
+        assert bx2 > bx1
+        assert by2 > by1
+        assert 0 <= bx1 <= 640 and 0 <= bx2 <= 640
+        assert 0 <= by1 <= 480 and 0 <= by2 <= 480
+
+
+def test_identify_tiger_separates_validation_from_internal_errors():
+    """
+    Verify that real validation failures produce friendly 'Image not accepted' messages,
+    while internal ValueErrors during processing produce friendly internal error messages
+    and are NEVER labeled as upload rejections.
+    """
+    import demo
+    from unittest.mock import patch
+
+    # Ensure database is loaded or mocked first
+    mock_matcher = MagicMock()
+    mock_matcher.reference_features = {"dummy": np.zeros(128)}
+    demo.matcher = mock_matcher
+
+    # 1. Genuine validation failure (invalid image type)
+    report, img, html, gallery = demo.identify_tiger(None)
+    assert "Please upload an image to identify." in report
+
+    # Genuine validation failure with invalid file path
+    report, img, html, gallery = demo.identify_tiger("non_existent_file.xyz")
+    assert "Image not accepted" in report
+    assert "Upload rejected" not in report
+
+    # 2. Internal ValueError during pipeline execution
+    valid_img = Image.new("RGB", (320, 320), color=(128, 128, 128))
+
+    with patch("demo.process_frame", side_effect=ValueError("x1 must be greater than or equal to x0")):
+        report, img, html, gallery = demo.identify_tiger(valid_img)
+        # MUST NOT say "Image not accepted" or "Upload rejected"
+        assert "Image not accepted" not in report
+        assert "Upload rejected" not in report
+        # MUST show friendly internal error message
+        assert "Something went wrong while processing this image." in report
+
